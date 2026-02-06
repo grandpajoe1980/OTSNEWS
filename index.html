@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>OTS NEWS</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            fontFamily: {
+              sans: ['Inter', 'sans-serif'],
+            },
+            colors: {
+              // Semantic Backgrounds
+              card: 'var(--bg-card)',
+              
+              // Map standard grays to variables that flip based on theme
+              gray: {
+                50: 'var(--gray-50)',
+                100: 'var(--gray-100)',
+                200: 'var(--gray-200)',
+                300: 'var(--gray-300)',
+                400: 'var(--gray-400)',
+                500: 'var(--gray-500)',
+                600: 'var(--gray-600)',
+                700: 'var(--gray-700)',
+                800: 'var(--gray-800)',
+                900: 'var(--gray-900)',
+              },
+              // Map brand colors
+              ots: {
+                50: 'var(--brand-50)',
+                100: 'var(--brand-100)',
+                500: 'var(--brand-500)',
+                600: 'var(--brand-600)',
+                700: 'var(--brand-700)',
+                900: 'var(--brand-900)',
+              }
+            }
+          }
+        }
+      }
+    </script>
+    <style>
+      :root {
+        /* Light Mode Defaults */
+        --bg-card: #ffffff;
+        --gray-50: #f9fafb;
+        --gray-100: #f3f4f6;
+        --gray-200: #e5e7eb;
+        --gray-300: #d1d5db;
+        --gray-400: #9ca3af;
+        --gray-500: #6b7280;
+        --gray-600: #4b5563;
+        --gray-700: #374151;
+        --gray-800: #1f2937;
+        --gray-900: #111827;
+
+        --brand-50: #f0f9ff;
+        --brand-100: #e0f2fe;
+        --brand-500: #0ea5e9;
+        --brand-600: #0284c7;
+        --brand-700: #0369a1;
+        --brand-900: #0c4a6e;
+      }
+
+      [data-theme='dark'] {
+        --bg-card: #1f2937;
+        --gray-50: #111827;  /* Was gray-900 */
+        --gray-100: #0f172a; /* Darker background */
+        --gray-200: #374151; /* Border */
+        --gray-300: #4b5563;
+        --gray-400: #6b7280;
+        --gray-500: #9ca3af;
+        --gray-600: #d1d5db;
+        --gray-700: #e5e7eb;
+        --gray-800: #f3f4f6;
+        --gray-900: #f9fafb; /* Text main */
+
+        --brand-50: #0c4a6e;
+        --brand-100: #075985;
+        --brand-500: #38bdf8;
+        --brand-600: #0ea5e9;
+        --brand-700: #0284c7;
+        --brand-900: #f0f9ff;
+      }
+
+      [data-theme='princess'] {
+        --bg-card: #ffffff;
+        --gray-50: #fdf2f8; /* pink-50 */
+        --gray-100: #fce7f3; /* pink-100 */
+        --gray-200: #fbcfe8; /* pink-200 */
+        --gray-300: #f9a8d4;
+        --gray-400: #f472b6;
+        --gray-500: #ec4899;
+        --gray-600: #db2777; /* pink-600 */
+        --gray-700: #be185d;
+        --gray-800: #9d174d;
+        --gray-900: #831843; /* pink-900 */
+
+        --brand-50: #fff1f2;
+        --brand-100: #ffe4e6;
+        --brand-500: #f43f5e;
+        --brand-600: #e11d48; /* rose-600 */
+        --brand-700: #be123c;
+        --brand-900: #881337;
+      }
+
+      body {
+        font-family: 'Inter', sans-serif;
+        background-color: var(--gray-100);
+        color: var(--gray-900);
+        transition: background-color 0.3s, color 0.3s;
+      }
+      
+      .prose img {
+        border-radius: 0.5rem;
+        margin-top: 1rem;
+        margin-bottom: 1rem;
+      }
+      .prose h1, .prose h2, .prose h3, .prose strong { color: var(--gray-900); }
+      .prose p, .prose li { color: var(--gray-700); }
+      .prose h1 { font-size: 1.5rem; font-weight: 700; margin-bottom: 0.5rem; }
+      .prose h2 { font-size: 1.25rem; font-weight: 600; margin-top: 1rem; margin-bottom: 0.5rem; }
+      .prose p { margin-bottom: 0.75rem; line-height: 1.6; }
+      .prose ul { list-style-type: disc; padding-left: 1.5rem; margin-bottom: 0.75rem; }
+      .prose pre { background: #1f2937; color: #fff; padding: 1rem; border-radius: 0.5rem; overflow-x: auto; }
+    </style>
+  <script type="importmap">
+{
+  "imports": {
+    "react/": "https://esm.sh/react@^19.2.4/",
+    "react": "https://esm.sh/react@^19.2.4",
+    "react-dom/": "https://esm.sh/react-dom@^19.2.4/",
+    "lucide-react": "https://esm.sh/lucide-react@^0.563.0"
+  }
+}
+</script>
+<link rel="stylesheet" href="/index.css">
+</head>
+  <body>
+    <div id="root"></div>
+  <script type="module" src="/index.tsx"></script>
+</body>
+</html>

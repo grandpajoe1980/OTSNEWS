@@ -1,0 +1,5 @@
+{
+  "name": "OTS NEWS",
+  "description": "Internal organization news platform with role-based access control, incident management sections, and article editing capabilities.",
+  "requestFramePermissions": []
+}
