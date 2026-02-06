@@ -1,6 +1,6 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { User, Article, UserRole, Comment, Theme, Section } from './types';
-import { MOCK_USERS, SECTIONS, INITIAL_ARTICLES } from './constants';
+import * as api from './services/api';
 import { Sidebar } from './components/Sidebar';
 import { ArticleCard } from './components/ArticleCard';
 import { RichTextEditor } from './components/RichTextEditor';
@@ -11,11 +11,12 @@ type ViewMode = 'feed' | 'section' | 'article' | 'editor' | 'login' | 'admin';
 export default function App() {
   // --- Global State ---
   const [currentUser, setCurrentUser] = useState<User | null>(null);
-  const [articles, setArticles] = useState<Article[]>(INITIAL_ARTICLES);
-  const [users, setUsers] = useState<User[]>(MOCK_USERS);
-  const [sections, setSections] = useState<Section[]>(SECTIONS);
+  const [articles, setArticles] = useState<Article[]>([]);
+  const [users, setUsers] = useState<User[]>([]);
+  const [sections, setSections] = useState<Section[]>([]);
   const [view, setView] = useState<ViewMode>('login');
   const [theme, setTheme] = useState<Theme>('light');
+  const [loading, setLoading] = useState(true);
   
   // --- Navigation State ---
   const [activeSectionId, setActiveSectionId] = useState<string | undefined>(undefined);
@@ -42,6 +43,7 @@ export default function App() {
     content: string;
     excerpt: string;
     allowComments: boolean;
+    imageUrl?: string;
   }>({
     title: '',
     sectionId: 'euc',
@@ -55,6 +57,28 @@ export default function App() {
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme);
   }, [theme]);
+
+  // --- Load Data from SQLite API ---
+  const refreshData = useCallback(async () => {
+    try {
+      const [u, s, a] = await Promise.all([
+        api.fetchUsers(),
+        api.fetchSections(),
+        api.fetchArticles(),
+      ]);
+      setUsers(u);
+      setSections(s);
+      setArticles(a);
+    } catch (err) {
+      console.error('Failed to load data from API:', err);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    refreshData();
+  }, [refreshData]);
 
   const cycleTheme = () => {
     if (theme === 'light') setTheme('dark');
@@ -87,14 +111,15 @@ export default function App() {
     }
   };
 
-  const handleRegister = () => {
+  const handleRegister = async () => {
     if (!regName.trim()) return;
     const newUser: User = {
       id: `u_${Date.now()}`,
       name: regName,
-      role: UserRole.USER, // Default to User
+      role: UserRole.USER,
       avatar: `https://picsum.photos/seed/${regName.replace(/\s/g, '')}/50/50`,
     };
+    await api.createUser(newUser);
     setUsers(prev => [...prev, newUser]);
     setCurrentUser(newUser);
     setView('feed');
@@ -140,6 +165,7 @@ export default function App() {
         content: articleToEdit.content,
         excerpt: articleToEdit.excerpt,
         allowComments: articleToEdit.allowComments,
+        imageUrl: articleToEdit.imageUrl,
       });
     } else {
       setEditorData({
@@ -149,12 +175,13 @@ export default function App() {
         content: '<p>Start writing your article...</p>',
         excerpt: '',
         allowComments: true
+        // no imageUrl by default
       });
     }
     setView('editor');
   };
 
-  const saveArticle = () => {
+  const saveArticle = async () => {
     if (!currentUser) return;
 
     const newArticle: Article = {
@@ -169,19 +196,38 @@ export default function App() {
       timestamp: Date.now(),
       allowComments: editorData.allowComments,
       comments: editorData.id ? (articles.find(a => a.id === editorData.id)?.comments || []) : [],
-      imageUrl: 'https://picsum.photos/800/400', 
+      imageUrl: editorData.imageUrl || 'https://picsum.photos/800/400', 
     };
 
     if (editorData.id) {
-      setArticles(prev => prev.map(a => a.id === editorData.id ? newArticle : a));
+      await api.updateArticle(newArticle);
     } else {
-      setArticles(prev => [newArticle, ...prev]);
+      await api.createArticle(newArticle);
     }
-    
+    await refreshData();
     navigateToSection(newArticle.sectionId, newArticle.subsectionId);
   };
 
-  const postComment = (text: string) => {
+  // --- Cover Image Handlers ---
+  const handleCoverFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files && e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      setEditorData(prev => ({ ...prev, imageUrl: reader.result as string }));
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleImageUrlChange = (val: string) => {
+    setEditorData(prev => ({ ...prev, imageUrl: val }));
+  };
+
+  const removeCoverImage = () => {
+    setEditorData(prev => ({ ...prev, imageUrl: undefined }));
+  };
+
+  const postComment = async (text: string) => {
     if (!currentUser || !currentArticle) return;
     const newComment: Comment = {
       id: `c_${Date.now()}`,
@@ -191,39 +237,38 @@ export default function App() {
       content: text,
       timestamp: Date.now(),
     };
-
-    const updatedArticle = {
-      ...currentArticle,
-      comments: [...currentArticle.comments, newComment],
-    };
-
-    setArticles(prev => prev.map(a => a.id === currentArticle.id ? updatedArticle : a));
+    await api.postComment(currentArticle.id, newComment);
+    await refreshData();
   };
 
   // --- Admin Actions ---
-  const handleRoleChange = (userId: string, newRole: UserRole) => {
+  const handleRoleChange = async (userId: string, newRole: UserRole) => {
+    await api.updateUserRole(userId, newRole);
     setUsers(prev => prev.map(u => u.id === userId ? { ...u, role: newRole } : u));
   };
 
-  const handleDeleteUser = (userId: string) => {
+  const handleDeleteUser = async (userId: string) => {
     if (currentUser?.id === userId) {
       alert("You cannot delete yourself.");
       return;
     }
     if (confirm("Are you sure you want to delete this user?")) {
+      await api.deleteUser(userId);
       setUsers(prev => prev.filter(u => u.id !== userId));
     }
   };
 
-  const addSection = () => {
+  const addSection = async () => {
     if (!newSectionTitle.trim()) return;
     const id = newSectionTitle.toLowerCase().replace(/\s+/g, '-');
+    await api.createSection(id, newSectionTitle);
     setSections(prev => [...prev, { id, title: newSectionTitle, subsections: [] }]);
     setNewSectionTitle('');
   };
 
-  const deleteSection = (sectionId: string) => {
+  const deleteSection = async (sectionId: string) => {
     if (confirm("Are you sure you want to delete this section? All articles in it will remain but may be hidden from navigation.")) {
+      await api.deleteSection(sectionId);
       setSections(prev => prev.filter(s => s.id !== sectionId));
       if (activeSectionId === sectionId) {
         navigateToFeed();
@@ -231,9 +276,10 @@ export default function App() {
     }
   };
 
-  const addSubsection = () => {
+  const addSubsection = async () => {
     if (!newSubsectionTitle.trim() || !selectedSectionForSub) return;
     const id = newSubsectionTitle.toLowerCase().replace(/\s+/g, '-');
+    await api.createSubsection(selectedSectionForSub, id, newSubsectionTitle);
     setSections(prev => prev.map(s => {
       if (s.id === selectedSectionForSub) {
         return {
@@ -251,6 +297,19 @@ export default function App() {
   const isAdmin = currentUser?.role === UserRole.ADMIN;
 
   // --- Views ---
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gray-100 flex items-center justify-center">
+        <div className="text-center">
+          <div className="h-16 w-16 bg-ots-600 rounded-xl flex items-center justify-center mb-4 shadow-lg rotate-3 mx-auto animate-pulse">
+            <span className="text-white font-bold text-2xl tracking-tighter">OTS</span>
+          </div>
+          <p className="text-gray-500 text-sm">Loading from database…</p>
+        </div>
+      </div>
+    );
+  }
 
   if (view === 'login') {
     return (
@@ -633,6 +692,43 @@ export default function App() {
                     className="block w-full border border-gray-300 rounded-lg px-4 py-2 focus:ring-ots-500 focus:border-ots-500 bg-card text-gray-900"
                     placeholder="A short summary for the card view..."
                   />
+                </div>
+
+                {/* Cover Image */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Cover Image (optional)</label>
+                  {editorData.imageUrl ? (
+                    <div className="mt-2">
+                      <div className="w-full h-48 bg-gray-100 rounded-lg overflow-hidden mb-2">
+                        <img src={editorData.imageUrl} alt="Cover preview" className="w-full h-full object-cover" />
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <label className="inline-flex items-center px-3 py-2 bg-white border border-gray-300 rounded text-sm cursor-pointer hover:bg-gray-50">
+                          Change Image
+                          <input type="file" accept="image/*" onChange={handleCoverFileChange} className="hidden" />
+                        </label>
+                        <button onClick={removeCoverImage} className="px-3 py-2 bg-red-50 text-red-600 border border-red-100 rounded text-sm hover:bg-red-100">Remove</button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="mt-2">
+                      <div className="flex items-center gap-2">
+                        <label className="inline-flex items-center px-3 py-2 bg-white border border-gray-300 rounded text-sm cursor-pointer hover:bg-gray-50">
+                          Upload Image
+                          <input type="file" accept="image/*" onChange={handleCoverFileChange} className="hidden" />
+                        </label>
+                        <span className="text-sm text-gray-400">or</span>
+                        <input
+                          type="text"
+                          value={editorData.imageUrl || ''}
+                          onChange={(e) => handleImageUrlChange(e.target.value)}
+                          placeholder="Paste image URL"
+                          className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm bg-card text-gray-900"
+                        />
+                      </div>
+                      <p className="text-xs text-gray-400 mt-2">Tip: Upload a file or paste an image URL.</p>
+                    </div>
+                  )}
                 </div>
 
                 {/* Rich Editor */}
