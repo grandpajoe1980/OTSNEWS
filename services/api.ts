@@ -14,7 +14,15 @@ export async function fetchUsers(): Promise<User[]> {
   return json<User[]>(`${BASE}/users`);
 }
 
-export async function createUser(user: User): Promise<User> {
+export async function loginUser(email: string, password: string): Promise<User> {
+  return json<User>(`${BASE}/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, password }),
+  });
+}
+
+export async function createUser(user: User & { password?: string }): Promise<User> {
   return json<User>(`${BASE}/users`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },

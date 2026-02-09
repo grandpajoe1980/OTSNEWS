@@ -9,20 +9,39 @@ app.use(express.json({ limit: '10mb' })); // large limit for base64 cover images
 // ─── USERS ───────────────────────────────────────────────
 app.get('/api/users', async (_req, res) => {
   const db = await getDb();
-  const rows = db.exec("SELECT id, name, role, avatar FROM users");
+  const rows = db.exec("SELECT id, name, email, role, avatar FROM users");
   if (!rows.length) return res.json([]);
   const users = rows[0].values.map(r => ({
-    id: r[0], name: r[1], role: r[2], avatar: r[3],
+    id: r[0], name: r[1], email: r[2], role: r[3], avatar: r[4],
   }));
   res.json(users);
 });
 
 app.post('/api/users', async (req, res) => {
   const db = await getDb();
-  const { id, name, role, avatar } = req.body;
-  db.run("INSERT INTO users (id, name, role, avatar) VALUES (?,?,?,?)", [id, name, role || 'user', avatar]);
+  const { id, name, email, password, role, avatar } = req.body;
+  // Check if email already exists
+  const existing = db.exec("SELECT id FROM users WHERE email = ?", [email]);
+  if (existing.length && existing[0].values.length) {
+    return res.status(400).json({ error: 'Email already registered' });
+  }
+  db.run("INSERT INTO users (id, name, email, password, role, avatar) VALUES (?,?,?,?,?,?)", [id, name, email, password || 'password', role || 'user', avatar]);
   saveDb();
-  res.json({ id, name, role: role || 'user', avatar });
+  res.json({ id, name, email, role: role || 'user', avatar });
+});
+
+app.post('/api/login', async (req, res) => {
+  const db = await getDb();
+  const { email, password } = req.body;
+  const rows = db.exec("SELECT id, name, email, password, role, avatar FROM users WHERE email = ?", [email]);
+  if (!rows.length || !rows[0].values.length) {
+    return res.status(401).json({ error: 'Invalid email or password' });
+  }
+  const row = rows[0].values[0];
+  if (row[3] !== password) {
+    return res.status(401).json({ error: 'Invalid email or password' });
+  }
+  res.json({ id: row[0], name: row[1], email: row[2], role: row[4], avatar: row[5] });
 });
 
 app.put('/api/users/:id/role', async (req, res) => {
@@ -68,11 +87,16 @@ app.post('/api/sections', async (req, res) => {
 });
 
 app.delete('/api/sections/:id', async (req, res) => {
-  const db = await getDb();
-  db.run("DELETE FROM subsections WHERE section_id = ?", [req.params.id]);
-  db.run("DELETE FROM sections WHERE id = ?", [req.params.id]);
-  saveDb();
-  res.json({ success: true });
+  try {
+    const db = await getDb();
+    db.run("DELETE FROM subsections WHERE section_id = ?", [req.params.id]);
+    db.run("DELETE FROM sections WHERE id = ?", [req.params.id]);
+    saveDb();
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Failed to delete section:', err);
+    res.status(500).json({ error: 'Failed to delete section' });
+  }
 });
 
 app.post('/api/sections/:sectionId/subsections', async (req, res) => {

@@ -1,6 +1,6 @@
 import { User } from '../types';
-import { MOCK_USERS } from '../constants';
+import * as api from './api';
 
-export const login = (roleId: string): User | undefined => {
-  return MOCK_USERS.find(u => u.id === roleId);
+export const login = async (email: string, password: string): Promise<User> => {
+  return api.loginUser(email, password);
 };

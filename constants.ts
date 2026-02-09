@@ -4,24 +4,28 @@ export const MOCK_USERS: User[] = [
   {
     id: 'u1',
     name: 'Alice Admin',
+    email: 'alice.admin@la.gov',
     role: UserRole.ADMIN,
     avatar: 'https://picsum.photos/seed/alice/50/50',
   },
   {
     id: 'u2',
     name: 'Eddie Editor',
+    email: 'eddie.editor@la.gov',
     role: UserRole.EDITOR,
     avatar: 'https://picsum.photos/seed/eddie/50/50',
   },
   {
     id: 'u3',
     name: 'John User',
+    email: 'john.user@la.gov',
     role: UserRole.USER,
     avatar: 'https://picsum.photos/seed/john/50/50',
   },
   {
     id: 'u4',
     name: 'Guest Visitor',
+    email: 'guest.visitor@la.gov',
     role: UserRole.GUEST,
     avatar: 'https://picsum.photos/seed/guest/50/50',
   },

@@ -29,10 +29,18 @@ export default function App() {
   const [newSectionTitle, setNewSectionTitle] = useState('');
   const [newSubsectionTitle, setNewSubsectionTitle] = useState('');
   const [selectedSectionForSub, setSelectedSectionForSub] = useState<string>('');
+  const [pendingDeleteSectionId, setPendingDeleteSectionId] = useState<string | null>(null);
 
   // --- Registration State ---
   const [isRegistering, setIsRegistering] = useState(false);
   const [regName, setRegName] = useState('');
+  const [regEmail, setRegEmail] = useState('');
+  const [regPassword, setRegPassword] = useState('');
+
+  // --- Login State ---
+  const [loginEmail, setLoginEmail] = useState('');
+  const [loginPassword, setLoginPassword] = useState('');
+  const [loginError, setLoginError] = useState('');
 
   // --- Editor State ---
   const [editorData, setEditorData] = useState<{
@@ -103,28 +111,43 @@ export default function App() {
   [articles, activeArticleId]);
 
   // --- Actions ---
-  const handleLogin = (userId: string) => {
-    const user = users.find(u => u.id === userId);
-    if (user) {
+  const handleLogin = async () => {
+    if (!loginEmail.trim() || !loginPassword.trim()) return;
+    setLoginError('');
+    try {
+      const user = await api.loginUser(loginEmail.trim(), loginPassword);
       setCurrentUser(user);
       setView('feed');
+      setLoginEmail('');
+      setLoginPassword('');
+    } catch (err: any) {
+      setLoginError('Invalid email or password');
     }
   };
 
   const handleRegister = async () => {
-    if (!regName.trim()) return;
-    const newUser: User = {
-      id: `u_${Date.now()}`,
-      name: regName,
-      role: UserRole.USER,
-      avatar: `https://picsum.photos/seed/${regName.replace(/\s/g, '')}/50/50`,
-    };
-    await api.createUser(newUser);
-    setUsers(prev => [...prev, newUser]);
-    setCurrentUser(newUser);
-    setView('feed');
-    setRegName('');
-    setIsRegistering(false);
+    if (!regName.trim() || !regEmail.trim() || !regPassword.trim()) return;
+    setLoginError('');
+    try {
+      const newUser: User & { password: string } = {
+        id: `u_${Date.now()}`,
+        name: regName,
+        email: regEmail.trim().toLowerCase(),
+        password: regPassword,
+        role: UserRole.USER,
+        avatar: `https://picsum.photos/seed/${regName.replace(/\s/g, '')}/50/50`,
+      };
+      const created = await api.createUser(newUser);
+      setUsers(prev => [...prev, created]);
+      setCurrentUser(created);
+      setView('feed');
+      setRegName('');
+      setRegEmail('');
+      setRegPassword('');
+      setIsRegistering(false);
+    } catch (err: any) {
+      setLoginError('Registration failed. Email may already be in use.');
+    }
   };
 
   const handleLogout = () => {
@@ -267,12 +290,17 @@ export default function App() {
   };
 
   const deleteSection = async (sectionId: string) => {
-    if (confirm("Are you sure you want to delete this section? All articles in it will remain but may be hidden from navigation.")) {
+    try {
       await api.deleteSection(sectionId);
       setSections(prev => prev.filter(s => s.id !== sectionId));
       if (activeSectionId === sectionId) {
         navigateToFeed();
       }
+      setPendingDeleteSectionId(null);
+      await refreshData();
+    } catch (err) {
+      console.error('Failed to delete section:', err);
+      alert('Failed to delete section. Please try again.');
     }
   };
 
@@ -326,11 +354,14 @@ export default function App() {
           {isRegistering ? (
             <div className="space-y-4">
                <div className="flex items-center mb-4">
-                 <button onClick={() => setIsRegistering(false)} className="text-gray-500 hover:text-gray-700">
+                 <button onClick={() => { setIsRegistering(false); setLoginError(''); }} className="text-gray-500 hover:text-gray-700">
                    <ArrowLeft size={20} />
                  </button>
                  <span className="ml-2 font-bold text-gray-700">Create Account</span>
                </div>
+               {loginError && (
+                 <div className="bg-red-50 border border-red-200 text-red-600 text-sm rounded-lg px-4 py-2">{loginError}</div>
+               )}
                <div>
                  <label className="block text-sm font-medium text-gray-700 mb-1">Full Name</label>
                  <input 
@@ -341,34 +372,72 @@ export default function App() {
                    placeholder="e.g. Jane Doe"
                  />
                </div>
+               <div>
+                 <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
+                 <input 
+                   type="email" 
+                   value={regEmail}
+                   onChange={(e) => setRegEmail(e.target.value)}
+                   className="block w-full border border-gray-300 rounded-lg px-4 py-2 focus:ring-ots-500 focus:border-ots-500 bg-card text-gray-900"
+                   placeholder="e.g. jane.doe@la.gov"
+                 />
+               </div>
+               <div>
+                 <label className="block text-sm font-medium text-gray-700 mb-1">Password</label>
+                 <input 
+                   type="password" 
+                   value={regPassword}
+                   onChange={(e) => setRegPassword(e.target.value)}
+                   className="block w-full border border-gray-300 rounded-lg px-4 py-2 focus:ring-ots-500 focus:border-ots-500 bg-card text-gray-900"
+                   placeholder="Choose a password"
+                 />
+               </div>
                <button 
                  onClick={handleRegister}
-                 disabled={!regName.trim()}
+                 disabled={!regName.trim() || !regEmail.trim() || !regPassword.trim()}
                  className="w-full bg-ots-600 text-white py-2 rounded-lg font-medium hover:bg-ots-700 transition-colors disabled:opacity-50"
                >
-                 Join & Login
+                 Register & Login
                </button>
             </div>
           ) : (
-            <div className="space-y-3">
-              <p className="text-xs font-semibold text-gray-400 uppercase mb-2">Select a Role Demo</p>
-              {users.map(user => (
-                <button
-                  key={user.id}
-                  onClick={() => handleLogin(user.id)}
-                  className="w-full flex items-center p-3 rounded-lg border border-gray-200 hover:border-ots-500 hover:bg-ots-50 transition-all group bg-card"
-                >
-                  <img src={user.avatar} alt={user.name} className="w-8 h-8 rounded-full mr-3" />
-                  <div className="flex flex-col items-start">
-                    <span className="text-sm font-semibold text-gray-700 group-hover:text-ots-700">{user.name}</span>
-                    <span className="text-xs text-gray-400 capitalize">{user.role}</span>
-                  </div>
-                </button>
-              ))}
+            <div className="space-y-4">
+              {loginError && (
+                <div className="bg-red-50 border border-red-200 text-red-600 text-sm rounded-lg px-4 py-2">{loginError}</div>
+              )}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
+                <input 
+                  type="email" 
+                  value={loginEmail}
+                  onChange={(e) => { setLoginEmail(e.target.value); setLoginError(''); }}
+                  onKeyDown={(e) => e.key === 'Enter' && handleLogin()}
+                  className="block w-full border border-gray-300 rounded-lg px-4 py-2 focus:ring-ots-500 focus:border-ots-500 bg-card text-gray-900"
+                  placeholder="you@la.gov"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Password</label>
+                <input 
+                  type="password" 
+                  value={loginPassword}
+                  onChange={(e) => { setLoginPassword(e.target.value); setLoginError(''); }}
+                  onKeyDown={(e) => e.key === 'Enter' && handleLogin()}
+                  className="block w-full border border-gray-300 rounded-lg px-4 py-2 focus:ring-ots-500 focus:border-ots-500 bg-card text-gray-900"
+                  placeholder="Enter your password"
+                />
+              </div>
+              <button 
+                onClick={handleLogin}
+                disabled={!loginEmail.trim() || !loginPassword.trim()}
+                className="w-full bg-ots-600 text-white py-2.5 rounded-lg font-medium hover:bg-ots-700 transition-colors disabled:opacity-50"
+              >
+                Sign In
+              </button>
               
               <button 
-                onClick={() => setIsRegistering(true)}
-                className="w-full flex items-center justify-center p-3 rounded-lg border border-dashed border-gray-300 text-gray-500 hover:bg-gray-50 hover:text-ots-600 transition-all mt-4"
+                onClick={() => { setIsRegistering(true); setLoginError(''); }}
+                className="w-full flex items-center justify-center p-3 rounded-lg border border-dashed border-gray-300 text-gray-500 hover:bg-gray-50 hover:text-ots-600 transition-all mt-2"
               >
                 <UserPlus size={18} className="mr-2" />
                 <span className="text-sm font-medium">Register New User</span>
@@ -940,13 +1009,31 @@ export default function App() {
                                         {s.title} 
                                         <span className="text-xs font-normal text-gray-400 ml-2">({s.id})</span>
                                       </div>
-                                      <button 
-                                        onClick={() => deleteSection(s.id)}
-                                        className="text-gray-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"
-                                        title="Delete Section"
-                                      >
-                                        <Trash2 size={14} />
-                                      </button>
+                                      {pendingDeleteSectionId === s.id ? (
+                                        <div className="flex items-center space-x-2">
+                                          <span className="text-xs text-red-600 font-medium">Delete?</span>
+                                          <button
+                                            onClick={() => deleteSection(s.id)}
+                                            className="text-xs bg-red-500 text-white px-2 py-0.5 rounded hover:bg-red-600"
+                                          >
+                                            Yes
+                                          </button>
+                                          <button
+                                            onClick={() => setPendingDeleteSectionId(null)}
+                                            className="text-xs bg-gray-200 text-gray-700 px-2 py-0.5 rounded hover:bg-gray-300"
+                                          >
+                                            No
+                                          </button>
+                                        </div>
+                                      ) : (
+                                        <button 
+                                          onClick={() => setPendingDeleteSectionId(s.id)}
+                                          className="text-gray-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"
+                                          title="Delete Section"
+                                        >
+                                          <Trash2 size={14} />
+                                        </button>
+                                      )}
                                     </div>
                                     <div className="ml-6 space-y-1">
                                       {s.subsections?.map(sub => (

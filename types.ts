@@ -10,6 +10,8 @@ export type Theme = 'light' | 'dark' | 'princess';
 export interface User {
   id: string;
   name: string;
+  email: string;
+  password?: string;
   role: UserRole;
   avatar: string;
 }

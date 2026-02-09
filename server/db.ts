@@ -27,6 +27,8 @@ export async function getDb(): Promise<Database> {
     CREATE TABLE IF NOT EXISTS users (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
+      email TEXT UNIQUE NOT NULL,
+      password TEXT NOT NULL DEFAULT 'password',
       role TEXT NOT NULL DEFAULT 'user',
       avatar TEXT
     );
@@ -92,13 +94,13 @@ export async function getDb(): Promise<Database> {
 function seedData(db: Database) {
   // Seed users
   const users = [
-    { id: 'u1', name: 'Alice Admin', role: 'admin', avatar: 'https://picsum.photos/seed/alice/50/50' },
-    { id: 'u2', name: 'Eddie Editor', role: 'editor', avatar: 'https://picsum.photos/seed/eddie/50/50' },
-    { id: 'u3', name: 'John User', role: 'user', avatar: 'https://picsum.photos/seed/john/50/50' },
-    { id: 'u4', name: 'Guest Visitor', role: 'guest', avatar: 'https://picsum.photos/seed/guest/50/50' },
+    { id: 'u1', name: 'Alice Admin', email: 'alice.admin@la.gov', password: 'password', role: 'admin', avatar: 'https://picsum.photos/seed/alice/50/50' },
+    { id: 'u2', name: 'Eddie Editor', email: 'eddie.editor@la.gov', password: 'password', role: 'editor', avatar: 'https://picsum.photos/seed/eddie/50/50' },
+    { id: 'u3', name: 'John User', email: 'john.user@la.gov', password: 'password', role: 'user', avatar: 'https://picsum.photos/seed/john/50/50' },
+    { id: 'u4', name: 'Guest Visitor', email: 'guest.visitor@la.gov', password: 'password', role: 'guest', avatar: 'https://picsum.photos/seed/guest/50/50' },
   ];
   for (const u of users) {
-    db.run("INSERT INTO users (id, name, role, avatar) VALUES (?, ?, ?, ?)", [u.id, u.name, u.role, u.avatar]);
+    db.run("INSERT INTO users (id, name, email, password, role, avatar) VALUES (?, ?, ?, ?, ?, ?)", [u.id, u.name, u.email, u.password, u.role, u.avatar]);
   }
 
   // Seed sections
