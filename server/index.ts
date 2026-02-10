@@ -54,6 +54,7 @@ app.put('/api/users/:id/role', async (req, res) => {
 
 app.delete('/api/users/:id', async (req, res) => {
   const db = await getDb();
+  db.run("DELETE FROM section_editors WHERE user_id = ?", [req.params.id]);
   db.run("DELETE FROM users WHERE id = ?", [req.params.id]);
   saveDb();
   res.json({ success: true });
@@ -64,7 +65,7 @@ app.get('/api/sections', async (_req, res) => {
   const db = await getDb();
   const sectionRows = db.exec("SELECT id, title FROM sections");
   const subRows = db.exec("SELECT id, title, section_id FROM subsections");
-  
+
   const sections = (sectionRows[0]?.values || []).map(r => {
     const subs = (subRows[0]?.values || [])
       .filter(s => s[2] === r[0])
@@ -89,6 +90,7 @@ app.post('/api/sections', async (req, res) => {
 app.delete('/api/sections/:id', async (req, res) => {
   try {
     const db = await getDb();
+    db.run("DELETE FROM section_editors WHERE section_id = ?", [req.params.id]);
     db.run("DELETE FROM subsections WHERE section_id = ?", [req.params.id]);
     db.run("DELETE FROM sections WHERE id = ?", [req.params.id]);
     saveDb();
@@ -181,6 +183,39 @@ app.post('/api/articles/:articleId/comments', async (req, res) => {
   );
   saveDb();
   res.json(c);
+});
+
+// ─── SECTION EDITORS ─────────────────────────────────────
+app.get('/api/section-editors', async (_req, res) => {
+  const db = await getDb();
+  const rows = db.exec("SELECT user_id, section_id FROM section_editors");
+  if (!rows.length) return res.json([]);
+  const editors = rows[0].values.map(r => ({
+    userId: r[0] as string,
+    sectionId: r[1] as string,
+  }));
+  res.json(editors);
+});
+
+app.post('/api/section-editors', async (req, res) => {
+  const db = await getDb();
+  const { userId, sectionId } = req.body;
+  // Avoid duplicates
+  const existing = db.exec("SELECT user_id FROM section_editors WHERE user_id = ? AND section_id = ?", [userId, sectionId]);
+  if (existing.length && existing[0].values.length) {
+    return res.status(400).json({ error: 'User is already an editor of this section' });
+  }
+  db.run("INSERT INTO section_editors (user_id, section_id) VALUES (?, ?)", [userId, sectionId]);
+  saveDb();
+  res.json({ userId, sectionId });
+});
+
+app.delete('/api/section-editors', async (req, res) => {
+  const db = await getDb();
+  const { userId, sectionId } = req.body;
+  db.run("DELETE FROM section_editors WHERE user_id = ? AND section_id = ?", [userId, sectionId]);
+  saveDb();
+  res.json({ success: true });
 });
 
 // ─── START ───────────────────────────────────────────────

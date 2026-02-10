@@ -1,5 +1,5 @@
 // Frontend API client – all calls go to /api/* which Vite proxies to Express
-import { Article, Comment, Section, User, UserRole } from '../types';
+import { Article, Comment, Section, SectionEditor, User, UserRole } from '../types';
 
 const BASE = '/api';
 
@@ -94,5 +94,26 @@ export async function postComment(articleId: string, comment: Comment): Promise<
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(comment),
+  });
+}
+
+// ─── SECTION EDITORS ─────────────────────────────────────
+export async function fetchSectionEditors(): Promise<SectionEditor[]> {
+  return json<SectionEditor[]>(`${BASE}/section-editors`);
+}
+
+export async function addSectionEditor(userId: string, sectionId: string): Promise<SectionEditor> {
+  return json<SectionEditor>(`${BASE}/section-editors`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ userId, sectionId }),
+  });
+}
+
+export async function removeSectionEditor(userId: string, sectionId: string): Promise<void> {
+  await json<any>(`${BASE}/section-editors`, {
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ userId, sectionId }),
   });
 }

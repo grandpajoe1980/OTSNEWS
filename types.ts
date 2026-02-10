@@ -45,3 +45,8 @@ export interface Section {
   title: string;
   subsections?: Section[];
 }
+
+export interface SectionEditor {
+  userId: string;
+  sectionId: string;
+}

@@ -81,6 +81,16 @@ export async function getDb(): Promise<Database> {
     );
   `);
 
+  db.run(`
+    CREATE TABLE IF NOT EXISTS section_editors (
+      user_id TEXT NOT NULL,
+      section_id TEXT NOT NULL,
+      PRIMARY KEY (user_id, section_id),
+      FOREIGN KEY (user_id) REFERENCES users(id),
+      FOREIGN KEY (section_id) REFERENCES sections(id)
+    );
+  `);
+
   // Seed data if tables are empty
   const userCount = db.exec("SELECT COUNT(*) as cnt FROM users")[0]?.values[0][0] as number;
   if (userCount === 0) {
@@ -180,6 +190,12 @@ function seedData(db: Database) {
   db.run(
     "INSERT INTO comments (id, article_id, author_id, author_name, author_avatar, content, timestamp) VALUES (?,?,?,?,?,?,?)",
     ['c1', 'a1', 'u3', 'John User', 'https://picsum.photos/seed/john/50/50', 'This is great news! The new UI looks much cleaner.', now - 5000000]
+  );
+
+  // Seed section editors (Eddie is editor of EUC section)
+  db.run(
+    "INSERT INTO section_editors (user_id, section_id) VALUES (?, ?)",
+    ['u2', 'euc']
   );
 }
 

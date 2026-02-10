@@ -1,0 +1,6 @@
+id,name,email,password,role,avatar
+u1,"Alice Admin",alice.admin@la.gov,password,admin,https://picsum.photos/seed/alice/50/50
+u2,"Eddie Editor",eddie.editor@la.gov,password,editor,https://picsum.photos/seed/eddie/50/50
+u3,"John User",john.user@la.gov,password,user,https://picsum.photos/seed/john/50/50
+u4,"Guest Visitor",guest.visitor@la.gov,password,guest,https://picsum.photos/seed/guest/50/50
+u_1770418355751,"Joe Skaggs",joe.skaggs@la.gov,Trustno1,admin,https://picsum.photos/seed/JoeSkaggs/50/50

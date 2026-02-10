@@ -46,46 +46,55 @@
     </script>
     <style>
       :root {
-        /* Light Mode Defaults */
+        /* Light Mode - OTS Brand Colors */
         --bg-card: #ffffff;
-        --gray-50: #f9fafb;
-        --gray-100: #f3f4f6;
+        --gray-50: #f7f7f7;  /* OTS Background */
+        --gray-100: #f7f7f7; /* OTS Background */
         --gray-200: #e5e7eb;
         --gray-300: #d1d5db;
         --gray-400: #9ca3af;
-        --gray-500: #6b7280;
-        --gray-600: #4b5563;
-        --gray-700: #374151;
-        --gray-800: #1f2937;
-        --gray-900: #111827;
+        --gray-500: #46585D; /* OTS Normal Text */
+        --gray-600: #46585D; /* OTS Normal Text */
+        --gray-700: #324348; /* OTS Dark Text */
+        --gray-800: #324348; /* OTS Dark Text */
+        --gray-900: #00284d; /* OTS Navy */
 
-        --brand-50: #f0f9ff;
-        --brand-100: #e0f2fe;
-        --brand-500: #0ea5e9;
-        --brand-600: #0284c7;
-        --brand-700: #0369a1;
-        --brand-900: #0c4a6e;
+        /* Brand Colors - OTS Navy Primary with Teal accents */
+        --brand-50: #e6f2f2;  /* Light teal tint */
+        --brand-100: #ccebeb; /* Teal tint */
+        --brand-500: #008282; /* OTS Teal */
+        --brand-600: #00284d; /* OTS Navy */
+        --brand-700: #001a33; /* Darker Navy */
+        --brand-900: #00284d; /* OTS Navy */
+
+        /* Accent color for special highlights */
+        --accent-orange: #fe9903; /* OTS Orange */
       }
 
       [data-theme='dark'] {
-        --bg-card: #1f2937;
-        --gray-50: #111827;  /* Was gray-900 */
-        --gray-100: #0f172a; /* Darker background */
-        --gray-200: #374151; /* Border */
-        --gray-300: #4b5563;
-        --gray-400: #6b7280;
-        --gray-500: #9ca3af;
-        --gray-600: #d1d5db;
-        --gray-700: #e5e7eb;
-        --gray-800: #f3f4f6;
-        --gray-900: #f9fafb; /* Text main */
+        /* Dark Mode - OTS Brand Colors Inverted */
+        --bg-card: #00284d;   /* OTS Navy for cards */
+        --gray-50: #001a33;   /* Darker navy background */
+        --gray-100: #001226;  /* Darkest navy background */
+        --gray-200: #003366;  /* Navy border */
+        --gray-300: #004080;
+        --gray-400: #6699cc;  /* Muted blue-gray */
+        --gray-500: #99b3cc;  /* Light muted text */
+        --gray-600: #ccd9e6;  /* Lighter text */
+        --gray-700: #e6ecf2;  /* Near white text */
+        --gray-800: #f0f4f7;  /* Light text */
+        --gray-900: #ffffff;  /* White text main */
 
-        --brand-50: #0c4a6e;
-        --brand-100: #075985;
-        --brand-500: #38bdf8;
-        --brand-600: #0ea5e9;
-        --brand-700: #0284c7;
-        --brand-900: #f0f9ff;
+        /* Brand Colors - Teal and light accents for dark mode */
+        --brand-50: #00284d;  /* Navy */
+        --brand-100: #003366; /* Lighter navy */
+        --brand-500: #00a3a3; /* Brighter teal for dark mode */
+        --brand-600: #008282; /* OTS Teal */
+        --brand-700: #006666; /* Darker teal */
+        --brand-900: #e6f2f2; /* Light teal for contrast */
+
+        /* Accent color stays vibrant */
+        --accent-orange: #fe9903; /* OTS Orange */
       }
 
       [data-theme='princess'] {
