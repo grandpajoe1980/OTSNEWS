@@ -63,8 +63,29 @@ export async function getDb(): Promise<Database> {
       timestamp INTEGER NOT NULL,
       image_url TEXT,
       allow_comments INTEGER NOT NULL DEFAULT 1,
+      status TEXT NOT NULL DEFAULT 'published',
       FOREIGN KEY (section_id) REFERENCES sections(id),
       FOREIGN KEY (author_id) REFERENCES users(id)
+    );
+  `);
+
+  db.run(`
+    CREATE TABLE IF NOT EXISTS tags (
+      article_id TEXT NOT NULL,
+      tag TEXT NOT NULL,
+      PRIMARY KEY (article_id, tag),
+      FOREIGN KEY (article_id) REFERENCES articles(id)
+    );
+  `);
+
+  db.run(`
+    CREATE TABLE IF NOT EXISTS attachments (
+      id TEXT PRIMARY KEY,
+      article_id TEXT NOT NULL,
+      filename TEXT NOT NULL,
+      data TEXT NOT NULL,
+      mime_type TEXT NOT NULL,
+      FOREIGN KEY (article_id) REFERENCES articles(id)
     );
   `);
 
@@ -77,6 +98,7 @@ export async function getDb(): Promise<Database> {
       author_avatar TEXT,
       content TEXT NOT NULL,
       timestamp INTEGER NOT NULL,
+      parent_id TEXT,
       FOREIGN KEY (article_id) REFERENCES articles(id)
     );
   `);
@@ -88,6 +110,28 @@ export async function getDb(): Promise<Database> {
       PRIMARY KEY (user_id, section_id),
       FOREIGN KEY (user_id) REFERENCES users(id),
       FOREIGN KEY (section_id) REFERENCES sections(id)
+    );
+  `);
+
+  db.run(`
+    CREATE TABLE IF NOT EXISTS notifications (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      type TEXT NOT NULL,
+      message TEXT NOT NULL,
+      article_id TEXT,
+      timestamp INTEGER NOT NULL,
+      read INTEGER NOT NULL DEFAULT 0,
+      FOREIGN KEY (user_id) REFERENCES users(id)
+    );
+  `);
+
+  db.run(`
+    CREATE TABLE IF NOT EXISTS digest_preferences (
+      user_id TEXT PRIMARY KEY,
+      enabled INTEGER NOT NULL DEFAULT 0,
+      frequency TEXT NOT NULL DEFAULT 'weekly',
+      FOREIGN KEY (user_id) REFERENCES users(id)
     );
   `);
 
@@ -147,7 +191,8 @@ function seedData(db: Database) {
       author_id: 'u1', author_name: 'Alice Admin',
       timestamp: now - 10000000,
       image_url: 'https://picsum.photos/seed/snow/800/400',
-      allow_comments: 1,
+      allow_comments: 1, status: 'published',
+      tags: ['servicenow', 'migration', 'incident-management'],
     },
     {
       id: 'a2', title: 'Annual Company Picnic',
@@ -157,7 +202,8 @@ function seedData(db: Database) {
       author_id: 'u2', author_name: 'Eddie Editor',
       timestamp: now - 20000000,
       image_url: 'https://picsum.photos/seed/picnic/800/400',
-      allow_comments: 1,
+      allow_comments: 1, status: 'published',
+      tags: ['event', 'team-building'],
     },
     {
       id: 'a3', title: 'New Health Benefit Options',
@@ -166,7 +212,8 @@ function seedData(db: Database) {
       section_id: 'hr', subsection_id: 'benefits',
       author_id: 'u1', author_name: 'Alice Admin',
       timestamp: now - 86400000,
-      image_url: null, allow_comments: 0,
+      image_url: null, allow_comments: 0, status: 'published',
+      tags: ['benefits', 'enrollment', 'hr'],
     },
     {
       id: 'a4', title: 'SWE Migration Project Kickoff',
@@ -176,26 +223,37 @@ function seedData(db: Database) {
       author_id: 'u1', author_name: 'Alice Admin',
       timestamp: now - 500000,
       image_url: 'https://picsum.photos/seed/tech/800/400',
-      allow_comments: 1,
+      allow_comments: 1, status: 'published',
+      tags: ['migration', 'vdi', 'field-operations'],
     },
   ];
   for (const a of articles) {
     db.run(
-      "INSERT INTO articles (id, title, content, excerpt, section_id, subsection_id, author_id, author_name, timestamp, image_url, allow_comments) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
-      [a.id, a.title, a.content, a.excerpt, a.section_id, a.subsection_id, a.author_id, a.author_name, a.timestamp, a.image_url, a.allow_comments]
+      "INSERT INTO articles (id, title, content, excerpt, section_id, subsection_id, author_id, author_name, timestamp, image_url, allow_comments, status) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+      [a.id, a.title, a.content, a.excerpt, a.section_id, a.subsection_id, a.author_id, a.author_name, a.timestamp, a.image_url, a.allow_comments, a.status]
     );
+    // Seed tags
+    for (const tag of a.tags) {
+      db.run("INSERT INTO tags (article_id, tag) VALUES (?, ?)", [a.id, tag]);
+    }
   }
 
   // Seed one comment
   db.run(
-    "INSERT INTO comments (id, article_id, author_id, author_name, author_avatar, content, timestamp) VALUES (?,?,?,?,?,?,?)",
-    ['c1', 'a1', 'u3', 'John User', 'https://picsum.photos/seed/john/50/50', 'This is great news! The new UI looks much cleaner.', now - 5000000]
+    "INSERT INTO comments (id, article_id, author_id, author_name, author_avatar, content, timestamp, parent_id) VALUES (?,?,?,?,?,?,?,?)",
+    ['c1', 'a1', 'u3', 'John User', 'https://picsum.photos/seed/john/50/50', 'This is great news! The new UI looks much cleaner.', now - 5000000, null]
   );
 
   // Seed section editors (Eddie is editor of EUC section)
   db.run(
     "INSERT INTO section_editors (user_id, section_id) VALUES (?, ?)",
     ['u2', 'euc']
+  );
+
+  // Seed a notification
+  db.run(
+    "INSERT INTO notifications (id, user_id, type, message, article_id, timestamp, read) VALUES (?,?,?,?,?,?,?)",
+    ['n1', 'u3', 'new_article', 'Alice Admin published "SWE Migration Project Kickoff"', 'a4', now - 400000, 0]
   );
 }
 

@@ -1,6 +1,6 @@
 import React from 'react';
 import { Article } from '../types';
-import { MessageSquare, Clock } from 'lucide-react';
+import { MessageSquare, Clock, Tag } from 'lucide-react';
 
 interface ArticleCardProps {
   article: Article;
@@ -9,17 +9,22 @@ interface ArticleCardProps {
 
 export const ArticleCard: React.FC<ArticleCardProps> = ({ article, onClick }) => {
   return (
-    <div 
+    <div
       onClick={() => onClick(article.id)}
       className="bg-card rounded-xl shadow-sm border border-gray-200 overflow-hidden hover:shadow-md transition-shadow cursor-pointer flex flex-col h-full"
     >
       {article.imageUrl && (
         <div className="h-48 w-full bg-gray-200 relative overflow-hidden">
-          <img 
-            src={article.imageUrl} 
-            alt={article.title} 
+          <img
+            src={article.imageUrl}
+            alt={article.title}
             className="w-full h-full object-cover"
           />
+          {article.status === 'draft' && (
+            <div className="absolute top-2 right-2 px-2 py-0.5 bg-yellow-400 text-yellow-900 text-[10px] font-bold rounded uppercase tracking-wider">
+              Draft
+            </div>
+          )}
         </div>
       )}
       <div className="p-4 flex flex-col flex-grow">
@@ -30,16 +35,33 @@ export const ArticleCard: React.FC<ArticleCardProps> = ({ article, onClick }) =>
           <span className="mx-2">•</span>
           <Clock size={12} className="mr-1" />
           {new Date(article.timestamp).toLocaleDateString()}
+          {article.status === 'draft' && !article.imageUrl && (
+            <span className="ml-2 px-1.5 py-0.5 bg-yellow-100 text-yellow-700 text-[10px] font-bold rounded uppercase">Draft</span>
+          )}
         </div>
-        
+
         <h3 className="text-xl font-bold text-gray-900 mb-2 line-clamp-2 leading-tight">
           {article.title}
         </h3>
-        
-        <p className="text-gray-600 text-sm mb-4 line-clamp-3 flex-grow">
+
+        <p className="text-gray-600 text-sm mb-3 line-clamp-3 flex-grow">
           {article.excerpt}
         </p>
-        
+
+        {/* Tags */}
+        {article.tags && article.tags.length > 0 && (
+          <div className="flex flex-wrap gap-1 mb-3">
+            {article.tags.slice(0, 3).map(tag => (
+              <span key={tag} className="inline-flex items-center px-1.5 py-0.5 bg-ots-50 text-ots-600 rounded text-[10px] font-medium">
+                <Tag size={10} className="mr-0.5" />{tag}
+              </span>
+            ))}
+            {article.tags.length > 3 && (
+              <span className="text-[10px] text-gray-400">+{article.tags.length - 3} more</span>
+            )}
+          </div>
+        )}
+
         <div className="flex items-center justify-between pt-4 border-t border-gray-200 mt-auto">
           <div className="flex items-center">
             <span className="text-xs font-medium text-gray-700">By {article.authorName}</span>

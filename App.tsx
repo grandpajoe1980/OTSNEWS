@@ -1,12 +1,12 @@
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
-import { User, Article, UserRole, Comment, Theme, Section, SectionEditor } from './types';
+import { User, Article, UserRole, Comment, Theme, Section, SectionEditor, Notification, DigestPreference, Attachment } from './types';
 import * as api from './services/api';
 import { Sidebar } from './components/Sidebar';
 import { ArticleCard } from './components/ArticleCard';
 import { RichTextEditor } from './components/RichTextEditor';
-import { Menu, Search, Bell, LogOut, LogIn, Plus, ChevronLeft, Send, Hash, User as UserIcon, MessageSquare, Sun, Moon, Crown, Settings, Trash2, Shield, UserPlus, ArrowLeft, X } from 'lucide-react';
+import { Menu, Search, Bell, LogOut, LogIn, Plus, ChevronLeft, Send, Hash, User as UserIcon, MessageSquare, Sun, Moon, Crown, Settings, Trash2, Shield, UserPlus, ArrowLeft, X, Reply, Paperclip, FileText, Download, Tag, Mail, Check, CheckCheck } from 'lucide-react';
 
-type ViewMode = 'feed' | 'section' | 'article' | 'editor' | 'admin';
+type ViewMode = 'feed' | 'section' | 'article' | 'editor' | 'admin' | 'digest';
 
 export default function App() {
   // --- Global State ---
@@ -19,6 +19,18 @@ export default function App() {
   const [theme, setTheme] = useState<Theme>('light');
   const [loading, setLoading] = useState(true);
   const [showLoginModal, setShowLoginModal] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+
+  // --- Notification State ---
+  const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [showNotifications, setShowNotifications] = useState(false);
+
+  // --- Digest State ---
+  const [digestPref, setDigestPref] = useState<DigestPreference>({ userId: '', enabled: false, frequency: 'weekly' });
+
+  // --- Tag Filter State ---
+  const [activeTag, setActiveTag] = useState<string | undefined>(undefined);
+  const [allTags, setAllTags] = useState<string[]>([]);
 
   // --- Navigation State ---
   const [activeSectionId, setActiveSectionId] = useState<string | undefined>(undefined);
@@ -54,14 +66,21 @@ export default function App() {
     excerpt: string;
     allowComments: boolean;
     imageUrl?: string;
+    status: 'draft' | 'published';
+    tags: string[];
+    attachments: Attachment[];
   }>({
     title: '',
     sectionId: 'euc',
     subsectionId: '',
     content: '<p>Start typing...</p>',
     excerpt: '',
-    allowComments: true
+    allowComments: true,
+    status: 'published',
+    tags: [],
+    attachments: [],
   });
+  const [tagInput, setTagInput] = useState('');
 
   // --- Theme Effect ---
   useEffect(() => {
@@ -101,14 +120,32 @@ export default function App() {
   // --- Derived State ---
   const filteredArticles = useMemo(() => {
     let filtered = [...articles].sort((a, b) => b.timestamp - a.timestamp);
+    // Hide drafts from non-authors (unless admin)
+    filtered = filtered.filter(a => {
+      if (a.status === 'published') return true;
+      if (!currentUser) return false;
+      if (currentUser.role === UserRole.ADMIN) return true;
+      return a.authorId === currentUser.id;
+    });
     if (activeSectionId) {
       filtered = filtered.filter(a => a.sectionId === activeSectionId);
     }
     if (activeSubsectionId) {
       filtered = filtered.filter(a => a.subsectionId === activeSubsectionId);
     }
+    if (activeTag) {
+      filtered = filtered.filter(a => a.tags?.includes(activeTag));
+    }
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase();
+      filtered = filtered.filter(a =>
+        a.title.toLowerCase().includes(q) ||
+        a.excerpt.toLowerCase().includes(q) ||
+        a.content.toLowerCase().includes(q)
+      );
+    }
     return filtered;
-  }, [articles, activeSectionId, activeSubsectionId]);
+  }, [articles, activeSectionId, activeSubsectionId, searchQuery, currentUser, activeTag]);
 
   const currentArticle = useMemo(() =>
     articles.find(a => a.id === activeArticleId),
@@ -195,6 +232,9 @@ export default function App() {
         excerpt: articleToEdit.excerpt,
         allowComments: articleToEdit.allowComments,
         imageUrl: articleToEdit.imageUrl,
+        status: articleToEdit.status || 'published',
+        tags: articleToEdit.tags || [],
+        attachments: articleToEdit.attachments || [],
       });
     } else {
       setEditorData({
@@ -203,10 +243,13 @@ export default function App() {
         subsectionId: '',
         content: '<p>Start writing your article...</p>',
         excerpt: '',
-        allowComments: true
-        // no imageUrl by default
+        allowComments: true,
+        status: 'published',
+        tags: [],
+        attachments: [],
       });
     }
+    setTagInput('');
     setView('editor');
   };
 
@@ -226,6 +269,9 @@ export default function App() {
       allowComments: editorData.allowComments,
       comments: editorData.id ? (articles.find(a => a.id === editorData.id)?.comments || []) : [],
       imageUrl: editorData.imageUrl || 'https://picsum.photos/800/400',
+      status: editorData.status,
+      tags: editorData.tags,
+      attachments: editorData.attachments,
     };
 
     if (editorData.id) {
@@ -235,6 +281,51 @@ export default function App() {
     }
     await refreshData();
     navigateToSection(newArticle.sectionId, newArticle.subsectionId);
+  };
+
+  const handleDeleteArticle = async (articleId: string) => {
+    if (!confirm('Are you sure you want to delete this article? This cannot be undone.')) return;
+    await api.deleteArticle(articleId);
+    await refreshData();
+    navigateToFeed();
+  };
+
+  const handleDeleteComment = async (commentId: string) => {
+    if (!confirm('Delete this comment?')) return;
+    await api.deleteComment(commentId);
+    await refreshData();
+  };
+
+  const addTag = () => {
+    const tag = tagInput.trim().toLowerCase().replace(/\s+/g, '-');
+    if (tag && !editorData.tags.includes(tag)) {
+      setEditorData(prev => ({ ...prev, tags: [...prev.tags, tag] }));
+    }
+    setTagInput('');
+  };
+
+  const removeTag = (tag: string) => {
+    setEditorData(prev => ({ ...prev, tags: prev.tags.filter(t => t !== tag) }));
+  };
+
+  const handleAttachmentUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files && e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const att: Attachment = {
+        id: `att_${Date.now()}`,
+        filename: file.name,
+        data: reader.result as string,
+        mimeType: file.type,
+      };
+      setEditorData(prev => ({ ...prev, attachments: [...prev.attachments, att] }));
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const removeAttachment = (attId: string) => {
+    setEditorData(prev => ({ ...prev, attachments: prev.attachments.filter(a => a.id !== attId) }));
   };
 
   // --- Cover Image Handlers ---
@@ -527,6 +618,8 @@ export default function App() {
             <input
               type="text"
               placeholder="Search news..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
               className="block w-full pl-10 pr-3 py-2 border border-gray-200 rounded-full leading-5 bg-gray-50 text-gray-900 placeholder-gray-400 focus:outline-none focus:bg-card focus:ring-1 focus:ring-ots-500 focus:border-ots-500 sm:text-sm transition-colors"
             />
           </div>
@@ -560,10 +653,68 @@ export default function App() {
           </button>
 
           {isLoggedIn && (
-            <button className="p-2 text-gray-500 hover:bg-gray-100 rounded-full relative">
-              <Bell size={20} />
-              <span className="absolute top-1.5 right-1.5 block h-2 w-2 rounded-full ring-2 ring-white bg-red-500"></span>
-            </button>
+            <div className="relative">
+              <button
+                onClick={async () => {
+                  if (!showNotifications && currentUser) {
+                    const notifs = await api.fetchNotifications(currentUser.id);
+                    setNotifications(notifs);
+                  }
+                  setShowNotifications(!showNotifications);
+                }}
+                className="p-2 text-gray-500 hover:bg-gray-100 rounded-full relative"
+              >
+                <Bell size={20} />
+                {notifications.filter(n => !n.read).length > 0 && (
+                  <span className="absolute top-1 right-1 flex items-center justify-center h-4 w-4 text-[10px] font-bold rounded-full ring-2 ring-white bg-red-500 text-white">
+                    {notifications.filter(n => !n.read).length}
+                  </span>
+                )}
+              </button>
+              {showNotifications && (
+                <div className="absolute right-0 mt-2 w-80 bg-card rounded-xl shadow-xl border border-gray-200 z-50 max-h-96 overflow-y-auto">
+                  <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200">
+                    <span className="font-bold text-sm text-gray-900">Notifications</span>
+                    {notifications.some(n => !n.read) && (
+                      <button
+                        onClick={async () => {
+                          if (currentUser) {
+                            await api.markAllNotificationsRead(currentUser.id);
+                            setNotifications(prev => prev.map(n => ({ ...n, read: true })));
+                          }
+                        }}
+                        className="text-xs text-ots-600 hover:text-ots-700 font-medium flex items-center"
+                      >
+                        <CheckCheck size={14} className="mr-1" /> Mark all read
+                      </button>
+                    )}
+                  </div>
+                  {notifications.length === 0 ? (
+                    <div className="p-6 text-center text-gray-400 text-sm">No notifications yet</div>
+                  ) : (
+                    notifications.slice(0, 20).map(n => (
+                      <div
+                        key={n.id}
+                        onClick={async () => {
+                          if (!n.read) {
+                            await api.markNotificationRead(n.id);
+                            setNotifications(prev => prev.map(x => x.id === n.id ? { ...x, read: true } : x));
+                          }
+                          if (n.articleId) {
+                            navigateToArticle(n.articleId);
+                            setShowNotifications(false);
+                          }
+                        }}
+                        className={`px-4 py-3 border-b border-gray-100 cursor-pointer hover:bg-gray-50 transition-colors ${!n.read ? 'bg-ots-50' : ''}`}
+                      >
+                        <p className={`text-sm ${!n.read ? 'font-semibold text-gray-900' : 'text-gray-600'}`}>{n.message}</p>
+                        <p className="text-xs text-gray-400 mt-1">{new Date(n.timestamp).toLocaleString()}</p>
+                      </div>
+                    ))
+                  )}
+                </div>
+              )}
+            </div>
           )}
           <div className="h-8 w-px bg-gray-200 mx-2"></div>
           {isLoggedIn ? (
@@ -577,6 +728,19 @@ export default function App() {
               </div>
               <button onClick={handleLogout} className="ml-2 p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-md transition-colors" title="Sign Out">
                 <LogOut size={18} />
+              </button>
+              <button
+                onClick={async () => {
+                  if (currentUser) {
+                    const pref = await api.fetchDigestPreference(currentUser.id);
+                    setDigestPref(pref);
+                  }
+                  setView('digest');
+                }}
+                className="p-2 text-gray-400 hover:text-ots-600 hover:bg-ots-50 rounded-md transition-colors"
+                title="Email Digest Settings"
+              >
+                <Mail size={18} />
               </button>
             </>
           ) : (
@@ -616,9 +780,20 @@ export default function App() {
                         'Top Stories'}
                   </h1>
                   <p className="text-gray-500 text-sm mt-1">
-                    {activeSectionId ? 'Latest updates from this section' : 'Curated news for you'}
+                    {searchQuery.trim() ? `Showing results for "${searchQuery}"` :
+                      activeTag ? `Filtered by tag: ${activeTag}` :
+                        activeSectionId ? 'Latest updates from this section' : 'Curated news for you'}
                   </p>
                 </div>
+                {activeTag && (
+                  <button
+                    onClick={() => setActiveTag(undefined)}
+                    className="flex items-center px-3 py-1.5 bg-ots-100 text-ots-700 rounded-full text-sm font-medium hover:bg-ots-200 transition-colors"
+                  >
+                    <Tag size={14} className="mr-1" />{activeTag}
+                    <X size={14} className="ml-1.5" />
+                  </button>
+                )}
               </div>
 
               {filteredArticles.length === 0 ? (
@@ -663,6 +838,11 @@ export default function App() {
               )}
 
               <div className="p-6 md:p-8">
+                {/* Draft Badge */}
+                {currentArticle.status === 'draft' && (
+                  <div className="mb-4 inline-block px-3 py-1 bg-yellow-100 text-yellow-800 text-xs font-bold rounded-full uppercase">Draft</div>
+                )}
+
                 {/* Metadata */}
                 <div className="flex items-center justify-between mb-8 pb-8 border-b border-gray-100">
                   <div className="flex items-center">
@@ -672,18 +852,64 @@ export default function App() {
                       <div className="text-xs text-gray-500">{new Date(currentArticle.timestamp).toLocaleDateString()} • 5 min read</div>
                     </div>
                   </div>
-                  {(canEditSection(currentArticle.sectionId) || (isLoggedIn && currentUser?.id === currentArticle.authorId && canEditSection(currentArticle.sectionId))) && (
-                    <button
-                      onClick={() => navigateToEditor(currentArticle)}
-                      className="px-4 py-2 bg-gray-100 text-gray-700 rounded-md text-sm font-medium hover:bg-gray-200 transition-colors"
-                    >
-                      Edit Article
-                    </button>
-                  )}
+                  <div className="flex items-center space-x-2">
+                    {canEditSection(currentArticle.sectionId) && (
+                      <button
+                        onClick={() => navigateToEditor(currentArticle)}
+                        className="px-4 py-2 bg-gray-100 text-gray-700 rounded-md text-sm font-medium hover:bg-gray-200 transition-colors"
+                      >
+                        Edit Article
+                      </button>
+                    )}
+                    {(isAdmin || canEditSection(currentArticle.sectionId)) && (
+                      <button
+                        onClick={() => handleDeleteArticle(currentArticle.id)}
+                        className="px-3 py-2 bg-red-50 text-red-600 rounded-md text-sm font-medium hover:bg-red-100 transition-colors"
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                    )}
+                  </div>
                 </div>
 
+                {/* Tags */}
+                {currentArticle.tags && currentArticle.tags.length > 0 && (
+                  <div className="flex flex-wrap gap-2 mb-6">
+                    {currentArticle.tags.map(tag => (
+                      <span
+                        key={tag}
+                        onClick={() => { setActiveTag(tag); navigateToFeed(); }}
+                        className="inline-flex items-center px-2.5 py-1 bg-ots-50 text-ots-600 rounded-full text-xs font-medium cursor-pointer hover:bg-ots-100 transition-colors"
+                      >
+                        <Tag size={12} className="mr-1" />{tag}
+                      </span>
+                    ))}
+                  </div>
+                )}
+
                 {/* Content */}
-                <div className="prose prose-blue max-w-none mb-12" dangerouslySetInnerHTML={{ __html: currentArticle.content }} />
+                <div className="prose prose-blue max-w-none mb-8" dangerouslySetInnerHTML={{ __html: currentArticle.content }} />
+
+                {/* Attachments */}
+                {currentArticle.attachments && currentArticle.attachments.length > 0 && (
+                  <div className="mb-8 p-4 bg-gray-50 rounded-lg border border-gray-200">
+                    <h4 className="text-sm font-bold text-gray-900 mb-3 flex items-center"><Paperclip size={16} className="mr-2" />Attachments</h4>
+                    <div className="space-y-2">
+                      {currentArticle.attachments.map(att => (
+                        <a
+                          key={att.id}
+                          href={att.data}
+                          download={att.filename}
+                          className="flex items-center p-2 bg-card rounded border border-gray-100 hover:bg-gray-50 transition-colors"
+                        >
+                          <FileText size={16} className="text-ots-600 mr-2 flex-shrink-0" />
+                          <span className="text-sm text-gray-700 flex-1 truncate">{att.filename}</span>
+                          <Download size={14} className="text-gray-400 ml-2" />
+                        </a>
+                      ))}
+                    </div>
+                  </div>
+                )}
 
                 {/* Comments Section */}
                 <div className="bg-gray-50 rounded-xl p-6 md:p-8">
@@ -699,21 +925,60 @@ export default function App() {
 
                   {currentArticle.allowComments ? (
                     <>
-                      {/* Comment List */}
-                      <div className="space-y-6 mb-8">
+                      {/* Comment List — threaded */}
+                      <div className="space-y-4 mb-8">
                         {currentArticle.comments.length > 0 ? (
-                          currentArticle.comments.map(comment => (
-                            <div key={comment.id} className="flex gap-4">
-                              <img src={comment.authorAvatar} alt="" className="w-8 h-8 rounded-full flex-shrink-0" />
-                              <div className="flex-1 bg-card p-4 rounded-lg shadow-sm border border-gray-100">
-                                <div className="flex items-baseline justify-between mb-1">
-                                  <span className="text-sm font-bold text-gray-900">{comment.authorName}</span>
-                                  <span className="text-xs text-gray-400">{new Date(comment.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                          (() => {
+                            const topLevel = currentArticle.comments.filter(c => !c.parentId);
+                            const replies = currentArticle.comments.filter(c => c.parentId);
+                            const renderComment = (comment: Comment, indent = false) => (
+                              <div key={comment.id} className={`flex gap-3 ${indent ? 'ml-10 mt-3' : ''}`}>
+                                <img src={comment.authorAvatar} alt="" className="w-7 h-7 rounded-full flex-shrink-0 mt-1" />
+                                <div className="flex-1 bg-card p-3 rounded-lg shadow-sm border border-gray-100">
+                                  <div className="flex items-baseline justify-between mb-1">
+                                    <span className="text-sm font-bold text-gray-900">{comment.authorName}</span>
+                                    <div className="flex items-center gap-2">
+                                      <span className="text-xs text-gray-400">{new Date(comment.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                                      {(isAdmin || canEditSection(currentArticle.sectionId)) && (
+                                        <button onClick={() => handleDeleteComment(comment.id)} className="text-gray-300 hover:text-red-500" title="Delete comment">
+                                          <Trash2 size={12} />
+                                        </button>
+                                      )}
+                                    </div>
+                                  </div>
+                                  <p className="text-sm text-gray-700">{comment.content}</p>
+                                  {canComment && (
+                                    <button
+                                      onClick={() => {
+                                        const text = prompt('Reply to this comment:');
+                                        if (text && text.trim() && currentUser && currentArticle) {
+                                          const newReply: Comment = {
+                                            id: `c_${Date.now()}`,
+                                            authorId: currentUser.id,
+                                            authorName: currentUser.name,
+                                            authorAvatar: currentUser.avatar,
+                                            content: text.trim(),
+                                            timestamp: Date.now(),
+                                            parentId: comment.id,
+                                          };
+                                          api.postComment(currentArticle.id, newReply).then(() => refreshData());
+                                        }
+                                      }}
+                                      className="mt-1 text-xs text-ots-600 hover:text-ots-700 flex items-center"
+                                    >
+                                      <Reply size={12} className="mr-1" />Reply
+                                    </button>
+                                  )}
                                 </div>
-                                <p className="text-sm text-gray-700">{comment.content}</p>
                               </div>
-                            </div>
-                          ))
+                            );
+                            return topLevel.map(c => (
+                              <div key={c.id}>
+                                {renderComment(c)}
+                                {replies.filter(r => r.parentId === c.id).map(r => renderComment(r, true))}
+                              </div>
+                            ));
+                          })()
                         ) : (
                           <p className="text-center text-gray-400 text-sm py-4">Be the first to share your thoughts.</p>
                         )}
@@ -877,18 +1142,80 @@ export default function App() {
                   </p>
                 </div>
 
-                {/* Settings */}
-                <div className="flex items-center">
-                  <input
-                    id="comments"
-                    type="checkbox"
-                    checked={editorData.allowComments}
-                    onChange={(e) => setEditorData(prev => ({ ...prev, allowComments: e.target.checked }))}
-                    className="h-4 w-4 text-ots-600 focus:ring-ots-500 border-gray-300 rounded"
-                  />
-                  <label htmlFor="comments" className="ml-2 block text-sm text-gray-900">
-                    Allow comments on this article
+                {/* Tags */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Tags</label>
+                  <div className="flex flex-wrap gap-2 mb-2">
+                    {editorData.tags.map(tag => (
+                      <span key={tag} className="inline-flex items-center px-2.5 py-1 bg-ots-50 text-ots-600 rounded-full text-xs font-medium">
+                        <Tag size={12} className="mr-1" />{tag}
+                        <button onClick={() => removeTag(tag)} className="ml-1.5 text-ots-400 hover:text-red-500">
+                          <X size={12} />
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={tagInput}
+                      onChange={(e) => setTagInput(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addTag(); } }}
+                      className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm bg-card text-gray-900"
+                      placeholder="Add a tag and press Enter"
+                    />
+                    <button onClick={addTag} className="px-3 py-2 bg-gray-100 text-gray-700 rounded-lg text-sm hover:bg-gray-200">Add</button>
+                  </div>
+                </div>
+
+                {/* Attachments */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">File Attachments</label>
+                  {editorData.attachments.length > 0 && (
+                    <div className="space-y-2 mb-3">
+                      {editorData.attachments.map(att => (
+                        <div key={att.id} className="flex items-center p-2 bg-gray-50 rounded border border-gray-200">
+                          <FileText size={16} className="text-ots-600 mr-2 flex-shrink-0" />
+                          <span className="text-sm text-gray-700 flex-1 truncate">{att.filename}</span>
+                          <button onClick={() => removeAttachment(att.id)} className="text-gray-400 hover:text-red-500 ml-2">
+                            <X size={14} />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  <label className="inline-flex items-center px-3 py-2 bg-white border border-gray-300 rounded text-sm cursor-pointer hover:bg-gray-50">
+                    <Paperclip size={14} className="mr-1.5" />
+                    Attach File
+                    <input type="file" onChange={handleAttachmentUpload} className="hidden" />
                   </label>
+                </div>
+
+                {/* Settings */}
+                <div className="flex items-center gap-6">
+                  <div className="flex items-center">
+                    <input
+                      id="comments"
+                      type="checkbox"
+                      checked={editorData.allowComments}
+                      onChange={(e) => setEditorData(prev => ({ ...prev, allowComments: e.target.checked }))}
+                      className="h-4 w-4 text-ots-600 focus:ring-ots-500 border-gray-300 rounded"
+                    />
+                    <label htmlFor="comments" className="ml-2 block text-sm text-gray-900">
+                      Allow comments
+                    </label>
+                  </div>
+                  <div className="flex items-center">
+                    <label className="block text-sm text-gray-700 mr-2">Status:</label>
+                    <select
+                      value={editorData.status}
+                      onChange={(e) => setEditorData(prev => ({ ...prev, status: e.target.value as 'draft' | 'published' }))}
+                      className="border border-gray-300 rounded-lg px-3 py-1.5 text-sm bg-card text-gray-900 focus:ring-ots-500 focus:border-ots-500"
+                    >
+                      <option value="published">Published</option>
+                      <option value="draft">Draft</option>
+                    </select>
+                  </div>
                 </div>
 
                 <div className="pt-4 border-t border-gray-100 flex justify-end space-x-3">
@@ -903,7 +1230,7 @@ export default function App() {
                     disabled={!editorData.title}
                     className="px-4 py-2 bg-ots-600 text-white rounded-lg hover:bg-ots-700 font-medium disabled:opacity-50 disabled:cursor-not-allowed"
                   >
-                    {editorData.id ? 'Update Article' : 'Publish Article'}
+                    {editorData.id ? 'Update Article' : (editorData.status === 'draft' ? 'Save Draft' : 'Publish Article')}
                   </button>
                 </div>
 
@@ -1223,6 +1550,67 @@ export default function App() {
                       </div>
                     </div>
                   )}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* View: Digest Settings */}
+          {view === 'digest' && currentUser && (
+            <div className="max-w-2xl mx-auto">
+              <div className="mb-6 flex items-center justify-between">
+                <button onClick={() => navigateToFeed()} className="flex items-center text-gray-500 hover:text-gray-900 transition-colors">
+                  <ChevronLeft size={20} className="mr-1" />
+                  Back
+                </button>
+                <h1 className="text-2xl font-bold text-gray-900">Email Digest Settings</h1>
+              </div>
+
+              <div className="bg-card rounded-xl shadow-sm border border-gray-200 p-6 space-y-6">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h3 className="text-lg font-bold text-gray-900 flex items-center"><Mail size={20} className="mr-2" />Email Digest</h3>
+                    <p className="text-sm text-gray-500 mt-1">Receive a summary of new articles delivered to your inbox.</p>
+                  </div>
+                  <button
+                    onClick={async () => {
+                      const newEnabled = !digestPref.enabled;
+                      const updated = await api.updateDigestPreference(currentUser.id, { enabled: newEnabled, frequency: digestPref.frequency });
+                      setDigestPref(updated);
+                    }}
+                    className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${digestPref.enabled ? 'bg-ots-600' : 'bg-gray-300'}`}
+                  >
+                    <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${digestPref.enabled ? 'translate-x-6' : 'translate-x-1'}`} />
+                  </button>
+                </div>
+
+                {digestPref.enabled && (
+                  <div className="border-t border-gray-100 pt-4">
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Frequency</label>
+                    <div className="flex gap-3">
+                      {(['daily', 'weekly'] as const).map(freq => (
+                        <button
+                          key={freq}
+                          onClick={async () => {
+                            const updated = await api.updateDigestPreference(currentUser.id, { enabled: true, frequency: freq });
+                            setDigestPref(updated);
+                          }}
+                          className={`px-4 py-2 rounded-lg text-sm font-medium border transition-colors ${digestPref.frequency === freq
+                              ? 'bg-ots-600 text-white border-ots-600'
+                              : 'bg-card text-gray-700 border-gray-300 hover:bg-gray-50'
+                            }`}
+                        >
+                          {freq.charAt(0).toUpperCase() + freq.slice(1)}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
+                  <p className="text-xs text-gray-500">
+                    <strong>Note:</strong> This is a preview of the digest settings experience. In a production deployment, this would connect to an email delivery service (e.g. SendGrid, SES) to send actual digest emails.
+                  </p>
                 </div>
               </div>
             </div>

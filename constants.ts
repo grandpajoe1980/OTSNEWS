@@ -90,6 +90,9 @@ export const INITIAL_ARTICLES: Article[] = [
         timestamp: Date.now() - 5000000,
       }
     ],
+    status: 'published',
+    tags: ['servicenow', 'migration'],
+    attachments: [],
   },
   {
     id: 'a2',
@@ -107,6 +110,9 @@ export const INITIAL_ARTICLES: Article[] = [
     imageUrl: 'https://picsum.photos/seed/picnic/800/400',
     allowComments: true,
     comments: [],
+    status: 'published',
+    tags: ['event', 'team-building'],
+    attachments: [],
   },
   {
     id: 'a3',
@@ -120,6 +126,9 @@ export const INITIAL_ARTICLES: Article[] = [
     timestamp: Date.now() - 86400000,
     allowComments: false,
     comments: [],
+    status: 'published',
+    tags: ['benefits', 'hr'],
+    attachments: [],
   },
   {
     id: 'a4',
@@ -144,5 +153,8 @@ export const INITIAL_ARTICLES: Article[] = [
     imageUrl: 'https://picsum.photos/seed/tech/800/400',
     allowComments: true,
     comments: [],
+    status: 'published',
+    tags: ['migration', 'vdi'],
+    attachments: [],
   }
 ];

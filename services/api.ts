@@ -1,5 +1,5 @@
 // Frontend API client – all calls go to /api/* which Vite proxies to Express
-import { Article, Comment, Section, SectionEditor, User, UserRole } from '../types';
+import { Article, Attachment, Comment, DigestPreference, Notification, Section, SectionEditor, User, UserRole } from '../types';
 
 const BASE = '/api';
 
@@ -72,6 +72,10 @@ export async function fetchArticles(): Promise<Article[]> {
   return json<Article[]>(`${BASE}/articles`);
 }
 
+export async function searchArticles(query: string): Promise<Article[]> {
+  return json<Article[]>(`${BASE}/articles/search?q=${encodeURIComponent(query)}`);
+}
+
 export async function createArticle(article: Article): Promise<Article> {
   return json<Article>(`${BASE}/articles`, {
     method: 'POST',
@@ -88,12 +92,68 @@ export async function updateArticle(article: Article): Promise<Article> {
   });
 }
 
+export async function deleteArticle(id: string): Promise<void> {
+  await json<any>(`${BASE}/articles/${id}`, { method: 'DELETE' });
+}
+
+// ─── TAGS ────────────────────────────────────────────────
+export async function fetchTags(): Promise<string[]> {
+  return json<string[]>(`${BASE}/tags`);
+}
+
+// ─── ATTACHMENTS ─────────────────────────────────────────
+export async function addAttachment(articleId: string, attachment: Attachment): Promise<Attachment> {
+  return json<Attachment>(`${BASE}/articles/${articleId}/attachments`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(attachment),
+  });
+}
+
+export async function deleteAttachment(id: string): Promise<void> {
+  await json<any>(`${BASE}/attachments/${id}`, { method: 'DELETE' });
+}
+
 // ─── COMMENTS ────────────────────────────────────────────
 export async function postComment(articleId: string, comment: Comment): Promise<Comment> {
   return json<Comment>(`${BASE}/articles/${articleId}/comments`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(comment),
+  });
+}
+
+export async function deleteComment(id: string): Promise<void> {
+  await json<any>(`${BASE}/comments/${id}`, { method: 'DELETE' });
+}
+
+// ─── NOTIFICATIONS ───────────────────────────────────────
+export async function fetchNotifications(userId: string): Promise<Notification[]> {
+  return json<Notification[]>(`${BASE}/notifications/${userId}`);
+}
+
+export async function markNotificationRead(id: string): Promise<void> {
+  await json<any>(`${BASE}/notifications/${id}/read`, { method: 'PUT' });
+}
+
+export async function markAllNotificationsRead(userId: string): Promise<void> {
+  await json<any>(`${BASE}/notifications/read-all`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ userId }),
+  });
+}
+
+// ─── DIGEST PREFERENCES ─────────────────────────────────
+export async function fetchDigestPreference(userId: string): Promise<DigestPreference> {
+  return json<DigestPreference>(`${BASE}/digest/${userId}`);
+}
+
+export async function updateDigestPreference(userId: string, pref: { enabled: boolean; frequency: string }): Promise<DigestPreference> {
+  return json<DigestPreference>(`${BASE}/digest/${userId}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(pref),
   });
 }
 

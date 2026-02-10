@@ -23,6 +23,14 @@ export interface Comment {
   authorAvatar: string;
   content: string;
   timestamp: number;
+  parentId?: string; // for threaded replies
+}
+
+export interface Attachment {
+  id: string;
+  filename: string;
+  data: string; // base64
+  mimeType: string;
 }
 
 export interface Article {
@@ -38,6 +46,9 @@ export interface Article {
   imageUrl?: string;
   allowComments: boolean;
   comments: Comment[];
+  status: 'draft' | 'published';
+  tags: string[];
+  attachments: Attachment[];
 }
 
 export interface Section {
@@ -49,4 +60,20 @@ export interface Section {
 export interface SectionEditor {
   userId: string;
   sectionId: string;
+}
+
+export interface Notification {
+  id: string;
+  userId: string;
+  type: 'new_article' | 'comment_reply' | 'comment_on_article';
+  message: string;
+  articleId?: string;
+  timestamp: number;
+  read: boolean;
+}
+
+export interface DigestPreference {
+  userId: string;
+  enabled: boolean;
+  frequency: 'daily' | 'weekly';
 }
