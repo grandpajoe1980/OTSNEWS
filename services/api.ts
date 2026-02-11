@@ -42,6 +42,14 @@ export async function deleteUser(userId: string): Promise<void> {
   await json<any>(`${BASE}/users/${userId}`, { method: 'DELETE' });
 }
 
+export async function resetUserPassword(userId: string, password: string): Promise<void> {
+  await json<any>(`${BASE}/users/${userId}/password`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ password }),
+  });
+}
+
 // ─── SECTIONS ────────────────────────────────────────────
 export async function fetchSections(): Promise<Section[]> {
   return json<Section[]>(`${BASE}/sections`);

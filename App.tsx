@@ -4,7 +4,7 @@ import * as api from './services/api';
 import { Sidebar } from './components/Sidebar';
 import { ArticleCard } from './components/ArticleCard';
 import { RichTextEditor } from './components/RichTextEditor';
-import { Menu, Search, Bell, LogOut, LogIn, Plus, ChevronLeft, Send, Hash, User as UserIcon, MessageSquare, Sun, Moon, Crown, Settings, Trash2, Shield, UserPlus, ArrowLeft, X, Reply, Paperclip, FileText, Download, Tag, Mail, Check, CheckCheck } from 'lucide-react';
+import { Menu, Search, Bell, LogOut, LogIn, Plus, ChevronLeft, Send, Hash, User as UserIcon, MessageSquare, Sun, Moon, Crown, Settings, Trash2, Shield, UserPlus, ArrowLeft, X, Reply, Paperclip, FileText, Download, Tag, Mail, Check, CheckCheck, KeyRound } from 'lucide-react';
 
 type ViewMode = 'feed' | 'section' | 'article' | 'editor' | 'admin' | 'digest';
 
@@ -81,6 +81,9 @@ export default function App() {
     attachments: [],
   });
   const [tagInput, setTagInput] = useState('');
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+  const [resetPasswordUserId, setResetPasswordUserId] = useState<string | null>(null);
+  const [resetPasswordValue, setResetPasswordValue] = useState('');
 
   // --- Theme Effect ---
   useEffect(() => {
@@ -280,18 +283,17 @@ export default function App() {
       await api.createArticle(newArticle);
     }
     await refreshData();
-    navigateToSection(newArticle.sectionId, newArticle.subsectionId);
+    navigateToFeed();
   };
 
   const handleDeleteArticle = async (articleId: string) => {
-    if (!confirm('Are you sure you want to delete this article? This cannot be undone.')) return;
     await api.deleteArticle(articleId);
+    setDeleteConfirmId(null);
     await refreshData();
     navigateToFeed();
   };
 
   const handleDeleteComment = async (commentId: string) => {
-    if (!confirm('Delete this comment?')) return;
     await api.deleteComment(commentId);
     await refreshData();
   };
@@ -863,7 +865,7 @@ export default function App() {
                     )}
                     {(isAdmin || canEditSection(currentArticle.sectionId)) && (
                       <button
-                        onClick={() => handleDeleteArticle(currentArticle.id)}
+                        onClick={() => setDeleteConfirmId(currentArticle.id)}
                         className="px-3 py-2 bg-red-50 text-red-600 rounded-md text-sm font-medium hover:bg-red-100 transition-colors"
                       >
                         <Trash2 size={16} />
@@ -1324,6 +1326,13 @@ export default function App() {
                                     >
                                       <Trash2 size={16} />
                                     </button>
+                                    <button
+                                      onClick={() => { setResetPasswordUserId(user.id); setResetPasswordValue(''); }}
+                                      className="text-amber-500 hover:text-amber-700 p-1 rounded hover:bg-amber-50"
+                                      title="Reset Password"
+                                    >
+                                      <KeyRound size={16} />
+                                    </button>
                                   </div>
                                 </td>
                               </tr>
@@ -1596,8 +1605,8 @@ export default function App() {
                             setDigestPref(updated);
                           }}
                           className={`px-4 py-2 rounded-lg text-sm font-medium border transition-colors ${digestPref.frequency === freq
-                              ? 'bg-ots-600 text-white border-ots-600'
-                              : 'bg-card text-gray-700 border-gray-300 hover:bg-gray-50'
+                            ? 'bg-ots-600 text-white border-ots-600'
+                            : 'bg-card text-gray-700 border-gray-300 hover:bg-gray-50'
                             }`}
                         >
                           {freq.charAt(0).toUpperCase() + freq.slice(1)}
@@ -1618,6 +1627,73 @@ export default function App() {
 
         </main>
       </div>
+      {/* Reset Password Modal */}
+      {resetPasswordUserId && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div className="absolute inset-0 bg-black/50" onClick={() => setResetPasswordUserId(null)} />
+          <div className="relative bg-card rounded-xl shadow-2xl border border-gray-200 p-6 max-w-md w-full mx-4">
+            <h3 className="text-lg font-bold text-gray-900 mb-1 flex items-center">
+              <KeyRound size={20} className="mr-2 text-amber-500" />
+              Reset Password
+            </h3>
+            <p className="text-sm text-gray-500 mb-4">
+              Set a new password for <strong>{users.find(u => u.id === resetPasswordUserId)?.name || 'this user'}</strong>
+            </p>
+            <input
+              type="text"
+              value={resetPasswordValue}
+              onChange={(e) => setResetPasswordValue(e.target.value)}
+              placeholder="Enter new password (min 4 chars)"
+              className="block w-full border border-gray-300 rounded-lg px-4 py-2 mb-4 text-sm bg-card text-gray-900 focus:ring-ots-500 focus:border-ots-500"
+              autoFocus
+            />
+            <div className="flex justify-end space-x-3">
+              <button
+                onClick={() => setResetPasswordUserId(null)}
+                className="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 font-medium text-sm"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={async () => {
+                  if (resetPasswordValue.length < 4) return;
+                  await api.resetUserPassword(resetPasswordUserId, resetPasswordValue);
+                  setResetPasswordUserId(null);
+                  setResetPasswordValue('');
+                }}
+                disabled={resetPasswordValue.length < 4}
+                className="px-4 py-2 bg-amber-500 text-white rounded-lg hover:bg-amber-600 font-medium text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Set Password
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* Delete Confirmation Modal */}
+      {deleteConfirmId && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div className="absolute inset-0 bg-black/50" onClick={() => setDeleteConfirmId(null)} />
+          <div className="relative bg-card rounded-xl shadow-2xl border border-gray-200 p-6 max-w-md w-full mx-4">
+            <h3 className="text-lg font-bold text-gray-900 mb-2">Delete Article</h3>
+            <p className="text-sm text-gray-600 mb-6">Are you sure you want to delete this article? This action cannot be undone.</p>
+            <div className="flex justify-end space-x-3">
+              <button
+                onClick={() => setDeleteConfirmId(null)}
+                className="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 font-medium text-sm"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => handleDeleteArticle(deleteConfirmId)}
+                className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 font-medium text-sm"
+              >
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       {loginModal}
     </div>
   );

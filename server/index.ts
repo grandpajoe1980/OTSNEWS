@@ -51,6 +51,17 @@ app.put('/api/users/:id/role', async (req, res) => {
   res.json({ success: true });
 });
 
+app.put('/api/users/:id/password', async (req, res) => {
+  const db = await getDb();
+  const { password } = req.body;
+  if (!password || password.length < 4) {
+    return res.status(400).json({ error: 'Password must be at least 4 characters' });
+  }
+  db.run("UPDATE users SET password = ? WHERE id = ?", [password, req.params.id]);
+  saveDb();
+  res.json({ success: true });
+});
+
 app.delete('/api/users/:id', async (req, res) => {
   const db = await getDb();
   db.run("DELETE FROM section_editors WHERE user_id = ?", [req.params.id]);
