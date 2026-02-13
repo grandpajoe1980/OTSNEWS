@@ -506,28 +506,35 @@ app.post('/api/email-config/test', async (req, res) => {
 });
 
 // ─── START ───────────────────────────────────────────────
-const PORT = 3001;
 
-async function start() {
-  await getDb();
-  console.log('📦 Turso database initialized');
+// Export the app for Vercel serverless functions
+export default app;
 
-  const server = app.listen(PORT, '127.0.0.1', () => {
-    console.log(`✅ OTS NEWS API server running on http://127.0.0.1:${PORT}`);
-  });
+// Only start the listener when running locally (not on Vercel)
+if (!process.env.VERCEL) {
+  const PORT = 3001;
 
-  server.on('error', (err: Error) => {
-    console.error('❌ Server error:', err);
-  });
+  async function start() {
+    await getDb();
+    console.log('📦 Turso database initialized');
 
-  process.on('SIGINT', () => {
-    console.log('\n🛑 Shutting down...');
-    server.close();
-    process.exit(0);
+    const server = app.listen(PORT, '127.0.0.1', () => {
+      console.log(`✅ OTS NEWS API server running on http://127.0.0.1:${PORT}`);
+    });
+
+    server.on('error', (err: Error) => {
+      console.error('❌ Server error:', err);
+    });
+
+    process.on('SIGINT', () => {
+      console.log('\n🛑 Shutting down...');
+      server.close();
+      process.exit(0);
+    });
+  }
+
+  start().catch(err => {
+    console.error('❌ Failed to start server:', err);
+    process.exit(1);
   });
 }
-
-start().catch(err => {
-  console.error('❌ Failed to start server:', err);
-  process.exit(1);
-});
