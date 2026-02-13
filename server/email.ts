@@ -8,7 +8,7 @@ import type { EmailConfig } from '../types';
  */
 export async function getEmailConfig(): Promise<EmailConfig | null> {
     const db = await getDb();
-    const rows = db.exec('SELECT provider, smtp_host, smtp_port, username, password, encryption, from_address, from_name, enabled FROM email_config WHERE id = 1');
+    const rows = await db.exec('SELECT provider, smtp_host, smtp_port, username, password, encryption, from_address, from_name, enabled FROM email_config WHERE id = 1');
     if (!rows.length || !rows[0].values.length) return null;
     const r = rows[0].values[0];
     return {

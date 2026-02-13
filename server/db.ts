@@ -1,29 +1,54 @@
-import initSqlJs, { Database } from 'sql.js';
-import path from 'path';
-import fs from 'fs';
-import { fileURLToPath } from 'url';
+import { createClient, type Client } from '@libsql/client';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-const DB_PATH = path.resolve(__dirname, '..', 'otsnews.db');
+// ── Turso (LibSQL) client ──────────────────────────────────
+const client: Client = createClient({
+  url: process.env.TURSO_DATABASE_URL!,
+  authToken: process.env.TURSO_AUTH_TOKEN,
+});
 
-let db: Database;
+// ── Compatibility layer ────────────────────────────────────
+// Mimics the sql.js exec() / run() interface so the rest of the server
+// code requires only the addition of `await` at each call site.
+interface ExecResult {
+  columns: string[];
+  values: any[][];
+}
 
-export async function getDb(): Promise<Database> {
-  if (db) return db;
+const db = {
+  /** SELECT-style queries – returns [{columns, values}] or [] */
+  async exec(sql: string, params: any[] = []): Promise<ExecResult[]> {
+    const result = await client.execute({ sql, args: params });
+    if (result.rows.length === 0) return [];
+    const values = result.rows.map(row => {
+      const arr: any[] = [];
+      for (let i = 0; i < result.columns.length; i++) {
+        arr.push(row[i] ?? null);
+      }
+      return arr;
+    });
+    return [{ columns: result.columns, values }];
+  },
 
-  const SQL = await initSqlJs();
+  /** INSERT / UPDATE / DELETE – fire-and-forget */
+  async run(sql: string, params: any[] = []): Promise<void> {
+    await client.execute({ sql, args: params });
+  },
+};
 
-  // Load existing DB file or create new
-  if (fs.existsSync(DB_PATH)) {
-    const fileBuffer = fs.readFileSync(DB_PATH);
-    db = new SQL.Database(fileBuffer);
-  } else {
-    db = new SQL.Database();
-  }
+// ── Schema initialisation ──────────────────────────────────
+let initialized = false;
 
-  // Create tables
-  db.run(`
+export type TursoDb = typeof db;
+
+export async function getDb(): Promise<TursoDb> {
+  if (initialized) return db;
+  await initTables();
+  initialized = true;
+  return db;
+}
+
+async function initTables() {
+  await db.run(`
     CREATE TABLE IF NOT EXISTS users (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
@@ -31,26 +56,26 @@ export async function getDb(): Promise<Database> {
       password TEXT NOT NULL DEFAULT 'password',
       role TEXT NOT NULL DEFAULT 'user',
       avatar TEXT
-    );
+    )
   `);
 
-  db.run(`
+  await db.run(`
     CREATE TABLE IF NOT EXISTS sections (
       id TEXT PRIMARY KEY,
       title TEXT NOT NULL
-    );
+    )
   `);
 
-  db.run(`
+  await db.run(`
     CREATE TABLE IF NOT EXISTS subsections (
       id TEXT PRIMARY KEY,
       title TEXT NOT NULL,
       section_id TEXT NOT NULL,
       FOREIGN KEY (section_id) REFERENCES sections(id)
-    );
+    )
   `);
 
-  db.run(`
+  await db.run(`
     CREATE TABLE IF NOT EXISTS articles (
       id TEXT PRIMARY KEY,
       title TEXT NOT NULL,
@@ -66,19 +91,19 @@ export async function getDb(): Promise<Database> {
       status TEXT NOT NULL DEFAULT 'published',
       FOREIGN KEY (section_id) REFERENCES sections(id),
       FOREIGN KEY (author_id) REFERENCES users(id)
-    );
+    )
   `);
 
-  db.run(`
+  await db.run(`
     CREATE TABLE IF NOT EXISTS tags (
       article_id TEXT NOT NULL,
       tag TEXT NOT NULL,
       PRIMARY KEY (article_id, tag),
       FOREIGN KEY (article_id) REFERENCES articles(id)
-    );
+    )
   `);
 
-  db.run(`
+  await db.run(`
     CREATE TABLE IF NOT EXISTS attachments (
       id TEXT PRIMARY KEY,
       article_id TEXT NOT NULL,
@@ -86,10 +111,10 @@ export async function getDb(): Promise<Database> {
       data TEXT NOT NULL,
       mime_type TEXT NOT NULL,
       FOREIGN KEY (article_id) REFERENCES articles(id)
-    );
+    )
   `);
 
-  db.run(`
+  await db.run(`
     CREATE TABLE IF NOT EXISTS comments (
       id TEXT PRIMARY KEY,
       article_id TEXT NOT NULL,
@@ -100,20 +125,20 @@ export async function getDb(): Promise<Database> {
       timestamp INTEGER NOT NULL,
       parent_id TEXT,
       FOREIGN KEY (article_id) REFERENCES articles(id)
-    );
+    )
   `);
 
-  db.run(`
+  await db.run(`
     CREATE TABLE IF NOT EXISTS section_editors (
       user_id TEXT NOT NULL,
       section_id TEXT NOT NULL,
       PRIMARY KEY (user_id, section_id),
       FOREIGN KEY (user_id) REFERENCES users(id),
       FOREIGN KEY (section_id) REFERENCES sections(id)
-    );
+    )
   `);
 
-  db.run(`
+  await db.run(`
     CREATE TABLE IF NOT EXISTS notifications (
       id TEXT PRIMARY KEY,
       user_id TEXT NOT NULL,
@@ -123,19 +148,19 @@ export async function getDb(): Promise<Database> {
       timestamp INTEGER NOT NULL,
       read INTEGER NOT NULL DEFAULT 0,
       FOREIGN KEY (user_id) REFERENCES users(id)
-    );
+    )
   `);
 
-  db.run(`
+  await db.run(`
     CREATE TABLE IF NOT EXISTS digest_preferences (
       user_id TEXT PRIMARY KEY,
       enabled INTEGER NOT NULL DEFAULT 0,
       frequency TEXT NOT NULL DEFAULT 'weekly',
       FOREIGN KEY (user_id) REFERENCES users(id)
-    );
+    )
   `);
 
-  db.run(`
+  await db.run(`
     CREATE TABLE IF NOT EXISTS email_config (
       id INTEGER PRIMARY KEY CHECK (id = 1),
       provider TEXT NOT NULL DEFAULT 'custom',
@@ -148,20 +173,18 @@ export async function getDb(): Promise<Database> {
       from_name TEXT NOT NULL DEFAULT 'OTS NEWS',
       enabled INTEGER NOT NULL DEFAULT 0,
       updated_at INTEGER
-    );
+    )
   `);
 
   // Seed data if tables are empty
-  const userCount = db.exec("SELECT COUNT(*) as cnt FROM users")[0]?.values[0][0] as number;
+  const result = await db.exec("SELECT COUNT(*) as cnt FROM users");
+  const userCount = result.length ? result[0].values[0][0] as number : 0;
   if (userCount === 0) {
-    seedData(db);
+    await seedData();
   }
-
-  saveDb();
-  return db;
 }
 
-function seedData(db: Database) {
+async function seedData() {
   // Seed users
   const users = [
     { id: 'u1', name: 'Alice Admin', email: 'alice.admin@la.gov', password: 'password', role: 'admin', avatar: 'https://picsum.photos/seed/alice/50/50' },
@@ -170,7 +193,7 @@ function seedData(db: Database) {
     { id: 'u4', name: 'Guest Visitor', email: 'guest.visitor@la.gov', password: 'password', role: 'guest', avatar: 'https://picsum.photos/seed/guest/50/50' },
   ];
   for (const u of users) {
-    db.run("INSERT INTO users (id, name, email, password, role, avatar) VALUES (?, ?, ?, ?, ?, ?)", [u.id, u.name, u.email, u.password, u.role, u.avatar]);
+    await db.run("INSERT INTO users (id, name, email, password, role, avatar) VALUES (?, ?, ?, ?, ?, ?)", [u.id, u.name, u.email, u.password, u.role, u.avatar]);
   }
 
   // Seed sections
@@ -180,7 +203,7 @@ function seedData(db: Database) {
     { id: 'general', title: 'General News' },
   ];
   for (const s of sections) {
-    db.run("INSERT INTO sections (id, title) VALUES (?, ?)", [s.id, s.title]);
+    await db.run("INSERT INTO sections (id, title) VALUES (?, ?)", [s.id, s.title]);
   }
 
   // Seed subsections
@@ -193,7 +216,7 @@ function seedData(db: Database) {
     { id: 'careers', title: 'Careers', section_id: 'hr' },
   ];
   for (const ss of subsections) {
-    db.run("INSERT INTO subsections (id, title, section_id) VALUES (?, ?, ?)", [ss.id, ss.title, ss.section_id]);
+    await db.run("INSERT INTO subsections (id, title, section_id) VALUES (?, ?, ?)", [ss.id, ss.title, ss.section_id]);
   }
 
   // Seed articles
@@ -244,38 +267,34 @@ function seedData(db: Database) {
     },
   ];
   for (const a of articles) {
-    db.run(
+    await db.run(
       "INSERT INTO articles (id, title, content, excerpt, section_id, subsection_id, author_id, author_name, timestamp, image_url, allow_comments, status) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
       [a.id, a.title, a.content, a.excerpt, a.section_id, a.subsection_id, a.author_id, a.author_name, a.timestamp, a.image_url, a.allow_comments, a.status]
     );
     // Seed tags
     for (const tag of a.tags) {
-      db.run("INSERT INTO tags (article_id, tag) VALUES (?, ?)", [a.id, tag]);
+      await db.run("INSERT INTO tags (article_id, tag) VALUES (?, ?)", [a.id, tag]);
     }
   }
 
   // Seed one comment
-  db.run(
+  await db.run(
     "INSERT INTO comments (id, article_id, author_id, author_name, author_avatar, content, timestamp, parent_id) VALUES (?,?,?,?,?,?,?,?)",
     ['c1', 'a1', 'u3', 'John User', 'https://picsum.photos/seed/john/50/50', 'This is great news! The new UI looks much cleaner.', now - 5000000, null]
   );
 
   // Seed section editors (Eddie is editor of EUC section)
-  db.run(
+  await db.run(
     "INSERT INTO section_editors (user_id, section_id) VALUES (?, ?)",
     ['u2', 'euc']
   );
 
   // Seed a notification
-  db.run(
+  await db.run(
     "INSERT INTO notifications (id, user_id, type, message, article_id, timestamp, read) VALUES (?,?,?,?,?,?,?)",
     ['n1', 'u3', 'new_article', 'Alice Admin published "SWE Migration Project Kickoff"', 'a4', now - 400000, 0]
   );
 }
 
-export function saveDb() {
-  if (!db) return;
-  const data = db.export();
-  const buffer = Buffer.from(data);
-  fs.writeFileSync(DB_PATH, buffer);
-}
+/** No-op – Turso persists automatically */
+export function saveDb() {}
