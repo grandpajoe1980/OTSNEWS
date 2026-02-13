@@ -1,6 +1,8 @@
 import express from 'express';
 import cors from 'cors';
 import { getDb, saveDb } from './db';
+import { getEmailConfig, testConnection, sendTestEmail } from './email';
+import type { EmailConfig } from '../types';
 
 const app = express();
 app.use(cors());
@@ -439,6 +441,67 @@ app.delete('/api/section-editors', async (req, res) => {
   const { userId, sectionId } = req.body;
   db.run("DELETE FROM section_editors WHERE user_id = ? AND section_id = ?", [userId, sectionId]);
   saveDb();
+  res.json({ success: true });
+});
+
+// ─── EMAIL CONFIG ────────────────────────────────────────
+app.get('/api/email-config', async (_req, res) => {
+  const config = await getEmailConfig();
+  if (!config) return res.json(null);
+  // Mask the password in the response
+  res.json({ ...config, password: config.password ? '••••••••' : '' });
+});
+
+app.put('/api/email-config', async (req, res) => {
+  const db = await getDb();
+  const c = req.body as EmailConfig;
+
+  // If the password is the mask placeholder, keep the old password
+  let password = c.password;
+  if (password === '••••••••') {
+    const existing = await getEmailConfig();
+    password = existing?.password || '';
+  }
+
+  const existing = db.exec('SELECT id FROM email_config WHERE id = 1');
+  if (existing.length && existing[0].values.length) {
+    db.run(
+      'UPDATE email_config SET provider=?, smtp_host=?, smtp_port=?, username=?, password=?, encryption=?, from_address=?, from_name=?, enabled=?, updated_at=? WHERE id=1',
+      [c.provider, c.smtpHost, c.smtpPort, c.username, password, c.encryption, c.fromAddress, c.fromName, c.enabled ? 1 : 0, Date.now()]
+    );
+  } else {
+    db.run(
+      'INSERT INTO email_config (id, provider, smtp_host, smtp_port, username, password, encryption, from_address, from_name, enabled, updated_at) VALUES (1,?,?,?,?,?,?,?,?,?,?)',
+      [c.provider, c.smtpHost, c.smtpPort, c.username, password, c.encryption, c.fromAddress, c.fromName, c.enabled ? 1 : 0, Date.now()]
+    );
+  }
+  saveDb();
+  res.json({ ...c, password: '••••••••' });
+});
+
+app.post('/api/email-config/test', async (req, res) => {
+  const c = req.body as EmailConfig & { testEmailTo?: string };
+
+  // If masked password, use stored password
+  let password = c.password;
+  if (password === '••••••••') {
+    const existing = await getEmailConfig();
+    password = existing?.password || '';
+  }
+  const configForTest: EmailConfig = { ...c, password };
+
+  // First test the connection
+  const connResult = await testConnection(configForTest);
+  if (!connResult.success) {
+    return res.json({ success: false, error: connResult.error });
+  }
+
+  // If a testEmailTo address is provided, send a test email
+  if (c.testEmailTo) {
+    const sendResult = await sendTestEmail(configForTest, c.testEmailTo);
+    return res.json(sendResult);
+  }
+
   res.json({ success: true });
 });
 

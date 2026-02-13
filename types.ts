@@ -77,3 +77,17 @@ export interface DigestPreference {
   enabled: boolean;
   frequency: 'daily' | 'weekly';
 }
+
+export type EmailProvider = 'exchange' | 'google' | 'custom';
+
+export interface EmailConfig {
+  provider: EmailProvider;
+  smtpHost: string;
+  smtpPort: number;
+  username: string;
+  password: string;
+  encryption: 'tls' | 'ssl' | 'none';
+  fromAddress: string;
+  fromName: string;
+  enabled: boolean;
+}

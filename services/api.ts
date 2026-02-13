@@ -185,3 +185,25 @@ export async function removeSectionEditor(userId: string, sectionId: string): Pr
     body: JSON.stringify({ userId, sectionId }),
   });
 }
+
+// ─── EMAIL CONFIG ────────────────────────────────────────
+export async function fetchEmailConfig(): Promise<any> {
+  return json<any>(`${BASE}/email-config`);
+}
+
+export async function saveEmailConfig(config: any): Promise<any> {
+  return json<any>(`${BASE}/email-config`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(config),
+  });
+}
+
+export async function testEmailConfig(config: any): Promise<{ success: boolean; error?: string }> {
+  return json<{ success: boolean; error?: string }>(`${BASE}/email-config/test`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(config),
+  });
+}
+

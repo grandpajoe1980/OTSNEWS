@@ -1,10 +1,10 @@
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
-import { User, Article, UserRole, Comment, Theme, Section, SectionEditor, Notification, DigestPreference, Attachment } from './types';
+import { User, Article, UserRole, Comment, Theme, Section, SectionEditor, Notification, DigestPreference, Attachment, EmailConfig, EmailProvider } from './types';
 import * as api from './services/api';
 import { Sidebar } from './components/Sidebar';
 import { ArticleCard } from './components/ArticleCard';
 import { RichTextEditor } from './components/RichTextEditor';
-import { Menu, Search, Bell, LogOut, LogIn, Plus, ChevronLeft, Send, Hash, User as UserIcon, MessageSquare, Sun, Moon, Crown, Settings, Trash2, Shield, UserPlus, ArrowLeft, X, Reply, Paperclip, FileText, Download, Tag, Mail, Check, CheckCheck, KeyRound } from 'lucide-react';
+import { Menu, Search, Bell, LogOut, LogIn, Plus, ChevronLeft, Send, Hash, User as UserIcon, MessageSquare, Sun, Moon, Crown, Settings, Trash2, Shield, UserPlus, ArrowLeft, X, Reply, Paperclip, FileText, Download, Tag, Mail, Check, CheckCheck, KeyRound, Server, Wifi, WifiOff, AlertCircle, CheckCircle2 } from 'lucide-react';
 
 type ViewMode = 'feed' | 'section' | 'article' | 'editor' | 'admin' | 'digest';
 
@@ -39,7 +39,23 @@ export default function App() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
 
   // --- Admin State ---
-  const [adminTab, setAdminTab] = useState<'users' | 'sections' | 'editors'>('users');
+  const [adminTab, setAdminTab] = useState<'users' | 'sections' | 'editors' | 'email'>('users');
+
+  // --- Email Config State ---
+  const [emailConfig, setEmailConfig] = useState<EmailConfig>({
+    provider: 'exchange',
+    smtpHost: '',
+    smtpPort: 587,
+    username: '',
+    password: '',
+    encryption: 'tls',
+    fromAddress: '',
+    fromName: 'OTS NEWS',
+    enabled: false,
+  });
+  const [emailTestStatus, setEmailTestStatus] = useState<{ loading: boolean; success?: boolean; error?: string }>({ loading: false });
+  const [emailSaveStatus, setEmailSaveStatus] = useState<{ saving: boolean; saved?: boolean }>({ saving: false });
+  const [emailTestEmailTo, setEmailTestEmailTo] = useState('');
   const [newSectionTitle, setNewSectionTitle] = useState('');
   const [newSubsectionTitle, setNewSubsectionTitle] = useState('');
   const [selectedSectionForSub, setSelectedSectionForSub] = useState<string>('');
@@ -1099,38 +1115,38 @@ export default function App() {
                 {/* Cover Image */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Cover Image (optional)</label>
-                  {editorData.imageUrl ? (
-                    <div className="mt-2">
-                      <div className="w-full h-48 bg-gray-100 rounded-lg overflow-hidden mb-2">
-                        <img src={editorData.imageUrl} alt="Cover preview" className="w-full h-full object-cover" />
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <label className="inline-flex items-center px-3 py-2 bg-white border border-gray-300 rounded text-sm cursor-pointer hover:bg-gray-50">
-                          Change Image
-                          <input type="file" accept="image/*" onChange={handleCoverFileChange} className="hidden" />
-                        </label>
-                        <button onClick={removeCoverImage} className="px-3 py-2 bg-red-50 text-red-600 border border-red-100 rounded text-sm hover:bg-red-100">Remove</button>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="mt-2">
-                      <div className="flex items-center gap-2">
-                        <label className="inline-flex items-center px-3 py-2 bg-white border border-gray-300 rounded text-sm cursor-pointer hover:bg-gray-50">
-                          Upload Image
-                          <input type="file" accept="image/*" onChange={handleCoverFileChange} className="hidden" />
-                        </label>
-                        <span className="text-sm text-gray-400">or</span>
-                        <input
-                          type="text"
-                          value={editorData.imageUrl || ''}
-                          onChange={(e) => handleImageUrlChange(e.target.value)}
-                          placeholder="Paste image URL"
-                          className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm bg-card text-gray-900"
+                  <div className="mt-2 space-y-3">
+                    {/* Image preview — only when URL looks valid */}
+                    {editorData.imageUrl && /^(https?:|data:)/.test(editorData.imageUrl) && (
+                      <div className="w-full h-48 bg-gray-100 rounded-lg overflow-hidden">
+                        <img
+                          src={editorData.imageUrl}
+                          alt="Cover preview"
+                          className="w-full h-full object-cover"
+                          onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
                         />
                       </div>
-                      <p className="text-xs text-gray-400 mt-2">Tip: Upload a file or paste an image URL.</p>
+                    )}
+                    {/* Controls row — always visible */}
+                    <div className="flex items-center gap-2">
+                      <label className="inline-flex items-center px-3 py-2 bg-white border border-gray-300 rounded text-sm cursor-pointer hover:bg-gray-50 whitespace-nowrap">
+                        {editorData.imageUrl ? 'Change Image' : 'Upload Image'}
+                        <input type="file" accept="image/*" onChange={handleCoverFileChange} className="hidden" />
+                      </label>
+                      <span className="text-sm text-gray-400">or</span>
+                      <input
+                        type="text"
+                        value={editorData.imageUrl || ''}
+                        onChange={(e) => handleImageUrlChange(e.target.value)}
+                        placeholder="Paste image URL"
+                        className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm bg-card text-gray-900"
+                      />
+                      {editorData.imageUrl && (
+                        <button onClick={removeCoverImage} className="px-3 py-2 bg-red-50 text-red-600 border border-red-100 rounded text-sm hover:bg-red-100 whitespace-nowrap">Remove</button>
+                      )}
                     </div>
-                  )}
+                    <p className="text-xs text-gray-400">Tip: Upload a file or paste an image URL.</p>
+                  </div>
                 </div>
 
                 {/* Rich Editor */}
@@ -1270,6 +1286,18 @@ export default function App() {
                     className={`flex-1 py-4 text-sm font-medium text-center transition-colors ${adminTab === 'editors' ? 'text-ots-600 border-b-2 border-ots-600 bg-ots-50' : 'text-gray-500 hover:text-gray-900'}`}
                   >
                     Section Editors
+                  </button>
+                  <button
+                    onClick={async () => {
+                      setAdminTab('email');
+                      try {
+                        const config = await api.fetchEmailConfig();
+                        if (config) setEmailConfig(config);
+                      } catch { }
+                    }}
+                    className={`flex-1 py-4 text-sm font-medium text-center transition-colors ${adminTab === 'email' ? 'text-ots-600 border-b-2 border-ots-600 bg-ots-50' : 'text-gray-500 hover:text-gray-900'}`}
+                  >
+                    Email Settings
                   </button>
                 </div>
 
@@ -1557,6 +1585,264 @@ export default function App() {
                           );
                         })}
                       </div>
+                    </div>
+                  )}
+
+                  {/* Email Config Tab */}
+                  {adminTab === 'email' && (
+                    <div className="space-y-6">
+                      {/* Provider Selector */}
+                      <div>
+                        <h3 className="text-sm font-bold text-gray-900 mb-3 uppercase tracking-wide">Email Provider</h3>
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                          {([
+                            { id: 'exchange' as EmailProvider, label: 'Exchange On-Prem', desc: 'Microsoft Exchange relay', icon: <Server size={20} /> },
+                            { id: 'google' as EmailProvider, label: 'Google Workspace', desc: 'Gmail / Google SMTP', icon: <Mail size={20} /> },
+                            { id: 'custom' as EmailProvider, label: 'Custom SMTP', desc: 'Any SMTP server', icon: <Settings size={20} /> },
+                          ]).map(p => (
+                            <button
+                              key={p.id}
+                              onClick={() => {
+                                const defaults: Record<EmailProvider, Partial<EmailConfig>> = {
+                                  exchange: { smtpHost: emailConfig.smtpHost || '', smtpPort: 587, encryption: 'tls' },
+                                  google: { smtpHost: 'smtp.gmail.com', smtpPort: 587, encryption: 'tls' },
+                                  custom: { smtpHost: emailConfig.smtpHost || '', smtpPort: 587, encryption: 'tls' },
+                                };
+                                setEmailConfig(prev => ({ ...prev, provider: p.id, ...defaults[p.id] }));
+                                setEmailTestStatus({ loading: false });
+                                setEmailSaveStatus({ saving: false });
+                              }}
+                              className={`p-4 rounded-lg border-2 text-left transition-all ${emailConfig.provider === p.id
+                                ? 'border-ots-600 bg-ots-50 ring-1 ring-ots-200'
+                                : 'border-gray-200 hover:border-gray-300 bg-card'
+                                }`}
+                            >
+                              <div className={`mb-2 ${emailConfig.provider === p.id ? 'text-ots-600' : 'text-gray-400'}`}>{p.icon}</div>
+                              <div className="text-sm font-bold text-gray-900">{p.label}</div>
+                              <div className="text-xs text-gray-500 mt-0.5">{p.desc}</div>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* SMTP Settings */}
+                      <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
+                        <h3 className="text-sm font-bold text-gray-900 mb-4 uppercase tracking-wide">SMTP Configuration</h3>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          <div>
+                            <label className="block text-xs font-semibold text-gray-500 mb-1">SMTP Host</label>
+                            <input
+                              type="text"
+                              value={emailConfig.smtpHost}
+                              onChange={e => setEmailConfig(prev => ({ ...prev, smtpHost: e.target.value }))}
+                              placeholder={emailConfig.provider === 'google' ? 'smtp.gmail.com' : 'mail.example.com'}
+                              className="w-full border border-gray-300 rounded px-3 py-2 text-sm bg-card text-gray-900 focus:ring-2 focus:ring-ots-500"
+                              readOnly={emailConfig.provider === 'google'}
+                            />
+                            {emailConfig.provider === 'google' && (
+                              <p className="text-xs text-gray-400 mt-1">Auto-set for Google Workspace</p>
+                            )}
+                          </div>
+                          <div>
+                            <label className="block text-xs font-semibold text-gray-500 mb-1">Port</label>
+                            <input
+                              type="number"
+                              value={emailConfig.smtpPort}
+                              onChange={e => setEmailConfig(prev => ({ ...prev, smtpPort: parseInt(e.target.value) || 587 }))}
+                              className="w-full border border-gray-300 rounded px-3 py-2 text-sm bg-card text-gray-900 focus:ring-2 focus:ring-ots-500"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-xs font-semibold text-gray-500 mb-1">Username</label>
+                            <input
+                              type="text"
+                              value={emailConfig.username}
+                              onChange={e => setEmailConfig(prev => ({ ...prev, username: e.target.value }))}
+                              placeholder="user@example.com"
+                              className="w-full border border-gray-300 rounded px-3 py-2 text-sm bg-card text-gray-900 focus:ring-2 focus:ring-ots-500"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-xs font-semibold text-gray-500 mb-1">Password</label>
+                            <input
+                              type="password"
+                              value={emailConfig.password}
+                              onChange={e => setEmailConfig(prev => ({ ...prev, password: e.target.value }))}
+                              placeholder="••••••••"
+                              className="w-full border border-gray-300 rounded px-3 py-2 text-sm bg-card text-gray-900 focus:ring-2 focus:ring-ots-500"
+                            />
+                            {emailConfig.provider === 'google' && (
+                              <p className="text-xs text-amber-600 mt-1">Use an App Password (not your Google password)</p>
+                            )}
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4">
+                          <div>
+                            <label className="block text-xs font-semibold text-gray-500 mb-1">Encryption</label>
+                            <select
+                              value={emailConfig.encryption}
+                              onChange={e => setEmailConfig(prev => ({ ...prev, encryption: e.target.value as EmailConfig['encryption'] }))}
+                              className="w-full border border-gray-300 rounded px-3 py-2 text-sm bg-card text-gray-900"
+                            >
+                              <option value="tls">STARTTLS (Port 587)</option>
+                              <option value="ssl">SSL/TLS (Port 465)</option>
+                              <option value="none">None (Port 25)</option>
+                            </select>
+                          </div>
+                          <div>
+                            <label className="block text-xs font-semibold text-gray-500 mb-1">From Address</label>
+                            <input
+                              type="email"
+                              value={emailConfig.fromAddress}
+                              onChange={e => setEmailConfig(prev => ({ ...prev, fromAddress: e.target.value }))}
+                              placeholder="noreply@example.com"
+                              className="w-full border border-gray-300 rounded px-3 py-2 text-sm bg-card text-gray-900 focus:ring-2 focus:ring-ots-500"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-xs font-semibold text-gray-500 mb-1">From Name</label>
+                            <input
+                              type="text"
+                              value={emailConfig.fromName}
+                              onChange={e => setEmailConfig(prev => ({ ...prev, fromName: e.target.value }))}
+                              placeholder="OTS NEWS"
+                              className="w-full border border-gray-300 rounded px-3 py-2 text-sm bg-card text-gray-900 focus:ring-2 focus:ring-ots-500"
+                            />
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Enable Toggle + Actions */}
+                      <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
+                        <div className="flex items-center justify-between mb-4">
+                          <div>
+                            <h3 className="text-sm font-bold text-gray-900">Enable Email Delivery</h3>
+                            <p className="text-xs text-gray-500 mt-0.5">When enabled, the system will send notification emails</p>
+                          </div>
+                          <button
+                            onClick={() => setEmailConfig(prev => ({ ...prev, enabled: !prev.enabled }))}
+                            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${emailConfig.enabled ? 'bg-ots-600' : 'bg-gray-300'}`}
+                          >
+                            <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${emailConfig.enabled ? 'translate-x-6' : 'translate-x-1'}`} />
+                          </button>
+                        </div>
+
+                        {/* Test Connection */}
+                        <div className="border-t border-gray-200 pt-4 mt-4">
+                          <div className="flex flex-col md:flex-row gap-3">
+                            <button
+                              onClick={async () => {
+                                setEmailTestStatus({ loading: true });
+                                try {
+                                  const result = await api.testEmailConfig(emailConfig);
+                                  setEmailTestStatus({ loading: false, success: result.success, error: result.error });
+                                } catch (err: any) {
+                                  setEmailTestStatus({ loading: false, success: false, error: err.message });
+                                }
+                              }}
+                              disabled={!emailConfig.smtpHost || emailTestStatus.loading}
+                              className="inline-flex items-center px-4 py-2 bg-gray-700 text-white rounded-lg text-sm font-medium hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                            >
+                              {emailTestStatus.loading ? (
+                                <><Wifi size={14} className="mr-2 animate-pulse" />Testing...</>
+                              ) : (
+                                <><Wifi size={14} className="mr-2" />Test Connection</>
+                              )}
+                            </button>
+
+                            <div className="flex items-center gap-2 flex-1">
+                              <input
+                                type="email"
+                                value={emailTestEmailTo}
+                                onChange={e => setEmailTestEmailTo(e.target.value)}
+                                placeholder="test@example.com"
+                                className="flex-1 border border-gray-300 rounded px-3 py-2 text-sm bg-card text-gray-900 focus:ring-2 focus:ring-ots-500"
+                              />
+                              <button
+                                onClick={async () => {
+                                  if (!emailTestEmailTo) return;
+                                  setEmailTestStatus({ loading: true });
+                                  try {
+                                    const result = await api.testEmailConfig({ ...emailConfig, testEmailTo: emailTestEmailTo });
+                                    setEmailTestStatus({ loading: false, success: result.success, error: result.error });
+                                  } catch (err: any) {
+                                    setEmailTestStatus({ loading: false, success: false, error: err.message });
+                                  }
+                                }}
+                                disabled={!emailTestEmailTo || !emailConfig.smtpHost || emailTestStatus.loading}
+                                className="inline-flex items-center px-4 py-2 bg-ots-600 text-white rounded-lg text-sm font-medium hover:bg-ots-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors whitespace-nowrap"
+                              >
+                                <Send size={14} className="mr-1.5" />Send Test
+                              </button>
+                            </div>
+                          </div>
+
+                          {/* Test Result */}
+                          {emailTestStatus.success !== undefined && !emailTestStatus.loading && (
+                            <div className={`mt-3 p-3 rounded-lg flex items-start gap-2 text-sm ${emailTestStatus.success
+                              ? 'bg-green-50 text-green-800 border border-green-200'
+                              : 'bg-red-50 text-red-800 border border-red-200'
+                              }`}>
+                              {emailTestStatus.success ? (
+                                <><CheckCircle2 size={16} className="flex-shrink-0 mt-0.5" /><span>Connection successful! Your email settings are working.</span></>
+                              ) : (
+                                <><AlertCircle size={16} className="flex-shrink-0 mt-0.5" /><span>Connection failed: {emailTestStatus.error}</span></>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Save Button */}
+                      <div className="flex items-center justify-between pt-2">
+                        <div>
+                          {emailSaveStatus.saved && (
+                            <span className="text-sm text-green-600 flex items-center"><CheckCircle2 size={14} className="mr-1" />Settings saved</span>
+                          )}
+                        </div>
+                        <button
+                          onClick={async () => {
+                            setEmailSaveStatus({ saving: true });
+                            try {
+                              const saved = await api.saveEmailConfig(emailConfig);
+                              setEmailConfig(saved);
+                              setEmailSaveStatus({ saving: false, saved: true });
+                              setTimeout(() => setEmailSaveStatus({ saving: false }), 3000);
+                            } catch {
+                              setEmailSaveStatus({ saving: false });
+                            }
+                          }}
+                          disabled={emailSaveStatus.saving}
+                          className="px-6 py-2.5 bg-ots-600 text-white rounded-lg text-sm font-medium hover:bg-ots-700 disabled:opacity-50 transition-colors"
+                        >
+                          {emailSaveStatus.saving ? 'Saving...' : 'Save Email Settings'}
+                        </button>
+                      </div>
+
+                      {/* Provider-specific help */}
+                      {emailConfig.provider === 'exchange' && (
+                        <div className="bg-blue-50 rounded-lg p-4 border border-blue-200">
+                          <h4 className="text-sm font-bold text-blue-900 mb-2">Exchange On-Premises Setup</h4>
+                          <ul className="text-xs text-blue-800 space-y-1 list-disc list-inside">
+                            <li>Enter your Exchange server hostname (e.g. <code className="bg-blue-100 px-1 rounded">mail.yourcompany.com</code>)</li>
+                            <li>Port 587 with STARTTLS is most common for on-prem relay</li>
+                            <li>Use a service account or relay with authorized sender address</li>
+                            <li>If anonymous relay is configured, username/password may be optional</li>
+                          </ul>
+                        </div>
+                      )}
+                      {emailConfig.provider === 'google' && (
+                        <div className="bg-blue-50 rounded-lg p-4 border border-blue-200">
+                          <h4 className="text-sm font-bold text-blue-900 mb-2">Google Workspace Setup</h4>
+                          <ul className="text-xs text-blue-800 space-y-1 list-disc list-inside">
+                            <li>Go to <strong>Google Account → Security → 2-Step Verification → App passwords</strong></li>
+                            <li>Generate an App Password and use it in the Password field above</li>
+                            <li>Use your full Gmail address as the Username</li>
+                            <li>SMTP host is pre-set to <code className="bg-blue-100 px-1 rounded">smtp.gmail.com</code></li>
+                          </ul>
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>

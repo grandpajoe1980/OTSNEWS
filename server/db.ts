@@ -135,6 +135,22 @@ export async function getDb(): Promise<Database> {
     );
   `);
 
+  db.run(`
+    CREATE TABLE IF NOT EXISTS email_config (
+      id INTEGER PRIMARY KEY CHECK (id = 1),
+      provider TEXT NOT NULL DEFAULT 'custom',
+      smtp_host TEXT NOT NULL DEFAULT '',
+      smtp_port INTEGER NOT NULL DEFAULT 587,
+      username TEXT NOT NULL DEFAULT '',
+      password TEXT NOT NULL DEFAULT '',
+      encryption TEXT NOT NULL DEFAULT 'tls',
+      from_address TEXT NOT NULL DEFAULT '',
+      from_name TEXT NOT NULL DEFAULT 'OTS NEWS',
+      enabled INTEGER NOT NULL DEFAULT 0,
+      updated_at INTEGER
+    );
+  `);
+
   // Seed data if tables are empty
   const userCount = db.exec("SELECT COUNT(*) as cnt FROM users")[0]?.values[0][0] as number;
   if (userCount === 0) {
