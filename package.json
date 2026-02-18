@@ -6,9 +6,9 @@
   "scripts": {
     "start": "npm run db:seed && concurrently \"npm run server\" \"npm run client\"",
     "client": "vite",
-    "server": "node --import tsx server/index.ts",
+    "server": "node --env-file=.env --import tsx server/index.ts",
     "dev": "npm run db:seed && concurrently \"npm run server\" \"npm run client\"",
-    "db:seed": "node --import tsx server/seed.ts",
+    "db:seed": "node --env-file=.env --import tsx server/seed.ts",
     "build": "vite build",
     "preview": "vite preview"
   },
