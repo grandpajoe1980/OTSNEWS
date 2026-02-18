@@ -1,20 +1,22 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
-</div>
+# OTS NEWS (Local SQLite)
 
-# Run and deploy your AI Studio app
+This project now runs locally using SQLite only.
 
-This contains everything you need to run your app locally.
+## Prerequisites
 
-View your app in AI Studio: https://ai.studio/apps/drive/11yZkjYKHJ_-831wZEzv46E1rFJztpDRv
+- Node.js 18+
 
-## Run Locally
-
-**Prerequisites:**  Node.js
-
+## Run locally
 
 1. Install dependencies:
    `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
+2. Seed local SQLite database (creates `otsnews.db` and seeds default data if empty):
+   `npm run db:seed`
+3. Start API + client:
    `npm run dev`
+
+## Notes
+
+- API server runs at `http://127.0.0.1:3001`.
+- Frontend uses `/api` and Vite proxies to the local API.
+- No Turso / Vercel database is required.

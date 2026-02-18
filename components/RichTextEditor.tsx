@@ -27,7 +27,7 @@ export const RichTextEditor: React.FC<RichTextEditorProps> = ({ value, onChange 
   onChangeRef.current = onChange;
 
   // Track what we last sent to the parent so we can ignore the echo
-  const lastPropValue = useRef(value);
+  const lastPropValue = useRef('');
   const lastSyncedValue = useRef<string | null>(null);
 
   useEffect(() => {

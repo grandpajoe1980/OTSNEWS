@@ -106,6 +106,21 @@ export default function App() {
     document.documentElement.setAttribute('data-theme', theme);
   }, [theme]);
 
+  useEffect(() => {
+    if (!showLoginModal) return;
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setShowLoginModal(false);
+        setLoginError('');
+        setIsRegistering(false);
+      }
+    };
+
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [showLoginModal]);
+
   // --- Load Data from SQLite API ---
   const refreshData = useCallback(async () => {
     try {
@@ -499,7 +514,7 @@ export default function App() {
 
   // Login Modal
   const loginModal = showLoginModal ? (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[100] p-4" onClick={() => setShowLoginModal(false)}>
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[100] p-4">
       <div className="bg-card p-8 rounded-2xl shadow-xl max-w-md w-full relative" onClick={(e) => e.stopPropagation()}>
         <button
           onClick={() => { setShowLoginModal(false); setLoginError(''); setIsRegistering(false); }}
@@ -530,6 +545,8 @@ export default function App() {
               <label className="block text-sm font-medium text-gray-700 mb-1">Full Name</label>
               <input
                 type="text"
+                name="fullName"
+                autoComplete="name"
                 value={regName}
                 onChange={(e) => setRegName(e.target.value)}
                 className="block w-full border border-gray-300 rounded-lg px-4 py-2 focus:ring-ots-500 focus:border-ots-500 bg-card text-gray-900"
@@ -540,6 +557,8 @@ export default function App() {
               <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
               <input
                 type="email"
+                name="registerEmail"
+                autoComplete="username"
                 value={regEmail}
                 onChange={(e) => setRegEmail(e.target.value)}
                 className="block w-full border border-gray-300 rounded-lg px-4 py-2 focus:ring-ots-500 focus:border-ots-500 bg-card text-gray-900"
@@ -550,6 +569,8 @@ export default function App() {
               <label className="block text-sm font-medium text-gray-700 mb-1">Password</label>
               <input
                 type="password"
+                name="registerPassword"
+                autoComplete="new-password"
                 value={regPassword}
                 onChange={(e) => setRegPassword(e.target.value)}
                 className="block w-full border border-gray-300 rounded-lg px-4 py-2 focus:ring-ots-500 focus:border-ots-500 bg-card text-gray-900"
@@ -573,6 +594,8 @@ export default function App() {
               <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
               <input
                 type="email"
+                name="loginEmail"
+                autoComplete="username"
                 value={loginEmail}
                 onChange={(e) => { setLoginEmail(e.target.value); setLoginError(''); }}
                 onKeyDown={(e) => e.key === 'Enter' && handleLogin()}
@@ -584,6 +607,8 @@ export default function App() {
               <label className="block text-sm font-medium text-gray-700 mb-1">Password</label>
               <input
                 type="password"
+                name="loginPassword"
+                autoComplete="current-password"
                 value={loginPassword}
                 onChange={(e) => { setLoginPassword(e.target.value); setLoginError(''); }}
                 onKeyDown={(e) => e.key === 'Enter' && handleLogin()}
@@ -635,6 +660,8 @@ export default function App() {
             </div>
             <input
               type="text"
+              name="siteSearch"
+              autoComplete="off"
               placeholder="Search news..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
