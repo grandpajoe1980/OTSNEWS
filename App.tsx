@@ -4,10 +4,11 @@ import * as api from './services/api';
 import { Sidebar } from './components/Sidebar';
 import { ArticleCard } from './components/ArticleCard';
 import { RichTextEditor } from './components/RichTextEditor';
+import Profile from './components/Profile';
 import { Menu, Search, Bell, LogOut, LogIn, Plus, ChevronLeft, Send, Hash, User as UserIcon, MessageSquare, Sun, Moon, Crown, Settings, Trash2, Shield, UserPlus, ArrowLeft, X, Reply, Paperclip, FileText, Download, Tag, Mail, Check, CheckCheck, KeyRound, Server, Wifi, WifiOff, AlertCircle, CheckCircle2 } from 'lucide-react';
 import otsLogoMark from './OTS-Logo-Mark-Normal-Color@3x-100.jpg';
 
-type ViewMode = 'feed' | 'section' | 'article' | 'editor' | 'admin' | 'digest';
+type ViewMode = 'feed' | 'section' | 'article' | 'editor' | 'admin' | 'digest' | 'profile';
 
 export default function App() {
   // --- Global State ---
@@ -152,8 +153,9 @@ export default function App() {
   // --- Load Data from SQLite API ---
   const refreshData = useCallback(async () => {
     try {
+      const shouldLoadUsers = currentUser?.role === UserRole.ADMIN;
       const [usersResult, sectionsResult, articlesResult, sectionEditorsResult] = await Promise.allSettled([
-        api.fetchUsers(),
+        shouldLoadUsers ? api.fetchUsers() : Promise.resolve([]),
         api.fetchSections(),
         api.fetchArticles(),
         api.fetchSectionEditors(),
@@ -176,7 +178,7 @@ export default function App() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [currentUser]);
 
   useEffect(() => {
     refreshData();
@@ -197,6 +199,14 @@ export default function App() {
   useEffect(() => {
     restoreSession();
   }, [restoreSession]);
+
+  const handleSaveProfile = async (payload: { name?: string; email?: string; avatar?: string; title?: string; section?: string }) => {
+    if (!currentUser) throw new Error('No current user');
+    const updated = await api.updateUserProfile(currentUser.id, payload);
+    setCurrentUser(updated);
+    setUsers(prev => prev.map(u => u.id === updated.id ? { ...u, ...updated } : u));
+    return updated;
+  };
 
   useEffect(() => {
     const loadSamlPublicConfig = async () => {
@@ -368,9 +378,13 @@ export default function App() {
         attachments: articleToEdit.attachments || [],
       });
     } else {
+      const nextSectionId =
+        (activeSectionId && editableSections.some(s => s.id === activeSectionId) ? activeSectionId : undefined)
+        || editableSections[0]?.id
+        || '';
       setEditorData({
         title: '',
-        sectionId: 'euc',
+        sectionId: nextSectionId,
         subsectionId: '',
         content: '<p>Start writing your article...</p>',
         excerpt: '',
@@ -546,7 +560,7 @@ export default function App() {
 
     try {
       setSavingUserProfileId(userId);
-      const updated = await api.updateUserProfile(userId, draftName, draftEmail);
+      const updated = await api.updateUserProfile(userId, { name: draftName, email: draftEmail });
       setUsers(prev => prev.map(u => u.id === userId ? { ...u, name: updated.name, email: updated.email } : u));
       setEditingUsers(prev => ({
         ...prev,
@@ -625,6 +639,22 @@ export default function App() {
       .map(se => se.sectionId);
     return sections.filter(s => editableIds.includes(s.id));
   }, [currentUser, sectionEditors, sections]);
+
+  const defaultEditorSectionId = useMemo(() => {
+    if (editableSections.length === 0) return '';
+    if (activeSectionId && editableSections.some(s => s.id === activeSectionId)) {
+      return activeSectionId;
+    }
+    return editableSections[0].id;
+  }, [editableSections, activeSectionId]);
+
+  useEffect(() => {
+    if (view !== 'editor' || !!editorData.id) return;
+    if (!defaultEditorSectionId) return;
+    if (!editableSections.some(s => s.id === editorData.sectionId)) {
+      setEditorData(prev => ({ ...prev, sectionId: defaultEditorSectionId, subsectionId: '' }));
+    }
+  }, [view, editorData.id, editorData.sectionId, editableSections, defaultEditorSectionId]);
 
   // --- Admin: Section Editor Actions ---
   const handleAddSectionEditor = async (userId: string, sectionId: string) => {
@@ -955,13 +985,13 @@ export default function App() {
           <div className="h-8 w-px bg-gray-200 mx-2"></div>
           {isLoggedIn ? (
             <>
-              <div className="flex items-center space-x-2">
+              <button onClick={() => setView('profile')} className="flex items-center space-x-2 cursor-pointer">
                 <img src={currentUser?.avatar} alt="Profile" className="h-8 w-8 rounded-full border border-gray-200" />
                 <div className="hidden lg:flex flex-col">
                   <span className="text-xs font-semibold text-gray-700 leading-none">{currentUser?.name}</span>
                   <span className="text-[10px] text-gray-500 capitalize leading-none mt-1">{currentUser?.role}</span>
                 </div>
-              </div>
+              </button>
               <button onClick={handleLogout} className="ml-2 p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-md transition-colors" title="Sign Out">
                 <LogOut size={18} />
               </button>
@@ -1318,8 +1348,10 @@ export default function App() {
                     <select
                       value={editorData.sectionId}
                       onChange={(e) => setEditorData(prev => ({ ...prev, sectionId: e.target.value, subsectionId: '' }))}
+                      disabled={editableSections.length === 0}
                       className="block w-full border border-gray-300 rounded-lg px-4 py-2 focus:ring-ots-500 focus:border-ots-500 bg-card text-gray-900"
                     >
+                      {editableSections.length === 0 && <option value="">No editable sections assigned</option>}
                       {editableSections.map(s => <option key={s.id} value={s.id}>{s.title}</option>)}
                     </select>
                   </div>
@@ -1483,7 +1515,7 @@ export default function App() {
                   </button>
                   <button
                     onClick={saveArticle}
-                    disabled={!editorData.title}
+                    disabled={!editorData.title || !editorData.sectionId}
                     className="px-4 py-2 bg-ots-600 text-white rounded-lg hover:bg-ots-700 font-medium disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     {editorData.id ? 'Update Article' : (editorData.status === 'draft' ? 'Save Draft' : 'Publish Article')}
@@ -2387,6 +2419,20 @@ export default function App() {
           )}
 
           {/* View: Digest Settings */}
+          {view === 'profile' && currentUser && (
+            <div className="max-w-2xl mx-auto">
+              <div className="mb-6 flex items-center justify-between">
+                <button onClick={() => navigateToFeed()} className="flex items-center text-gray-500 hover:text-gray-900 transition-colors">
+                  <ChevronLeft size={20} className="mr-1" />
+                  Back
+                </button>
+                <h1 className="text-2xl font-bold text-gray-900">My Profile</h1>
+              </div>
+
+              <Profile user={currentUser} onSave={handleSaveProfile} onClose={() => navigateToFeed()} />
+            </div>
+          )}
+
           {view === 'digest' && currentUser && (
             <div className="max-w-2xl mx-auto">
               <div className="mb-6 flex items-center justify-between">

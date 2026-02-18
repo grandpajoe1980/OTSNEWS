@@ -32,7 +32,7 @@ function clearCsrfTokenCache() {
   csrfTokenCache = null;
 }
 
-async function json<T>(url: string, init?: RequestInit): Promise<T> {
+async function json<T>(url: string, init?: RequestInit, allowCsrfRetry = true): Promise<T> {
   const headers = new Headers(init?.headers || {});
   if (isStateChangingMethod(init?.method)) {
     const csrfToken = await getCsrfToken();
@@ -46,7 +46,19 @@ async function json<T>(url: string, init?: RequestInit): Promise<T> {
   });
 
   if (res.status === 403 && isStateChangingMethod(init?.method)) {
+    let errorMessage = '';
+    try {
+      const errorBody = await res.clone().json() as { error?: string };
+      errorMessage = String(errorBody?.error || '');
+    } catch {
+      // keep empty message
+    }
+
+    const isCsrfFailure = /csrf/i.test(errorMessage);
     clearCsrfTokenCache();
+    if (isCsrfFailure && allowCsrfRetry) {
+      return json<T>(url, init, false);
+    }
   }
   if (!res.ok) {
     let message = `API ${res.status}: ${res.statusText}`;
@@ -101,11 +113,11 @@ export async function updateUserRole(userId: string, role: UserRole): Promise<vo
   });
 }
 
-export async function updateUserProfile(userId: string, name: string, email: string): Promise<User> {
+export async function updateUserProfile(userId: string, payload: { name?: string; email?: string; avatar?: string; title?: string; section?: string }): Promise<User> {
   return json<User>(`${BASE}/users/${userId}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name, email }),
+    body: JSON.stringify(payload),
   });
 }
 

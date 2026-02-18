@@ -14,6 +14,8 @@ export interface User {
   password?: string;
   role: UserRole;
   avatar: string;
+  title?: string;
+  section?: string;
   authSource?: 'local' | 'saml';
 }
 

@@ -48,6 +48,8 @@ export async function getDb(): Promise<Database> {
   ensureColumn(db, 'users', 'auth_source', "TEXT NOT NULL DEFAULT 'local'");
   ensureColumn(db, 'users', 'failed_login_count', 'INTEGER NOT NULL DEFAULT 0');
   ensureColumn(db, 'users', 'locked_until', 'INTEGER');
+  ensureColumn(db, 'users', 'title', 'TEXT');
+  ensureColumn(db, 'users', 'section', 'TEXT');
 
   db.run(`
     CREATE TABLE IF NOT EXISTS sections (

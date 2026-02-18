@@ -98,6 +98,8 @@ type SessionUser = {
   email: string;
   role: string;
   avatar: string;
+  title?: string;
+  section?: string;
 };
 
 function base64UrlEncode(value: string): string {
@@ -275,7 +277,7 @@ async function getSessionUser(req: express.Request): Promise<SessionUser | null>
   const session = verifySessionToken(token);
   if (!session) return null;
 
-  const rows = db.exec("SELECT id, name, email, role, avatar FROM users WHERE id = ?", [session.userId]);
+  const rows = db.exec("SELECT id, name, email, role, avatar, title, section FROM users WHERE id = ?", [session.userId]);
   if (!rows.length || !rows[0].values.length) return null;
   const row = rows[0].values[0];
   return {
@@ -283,7 +285,9 @@ async function getSessionUser(req: express.Request): Promise<SessionUser | null>
     name: row[1] as string,
     email: row[2] as string,
     role: row[3] as string,
-    avatar: row[4] as string,
+    avatar: (row[4] as string) || `https://picsum.photos/seed/default/50/50`,
+    title: (row[5] as string) || '',
+    section: (row[6] as string) || '',
   };
 }
 
@@ -596,17 +600,17 @@ app.get('/api/csrf-token', async (_req, res) => {
 
 app.get('/api/users', requireAuth, requireAdmin, async (_req, res) => {
   const db = await getDb();
-  const rows = db.exec("SELECT id, name, email, role, avatar, auth_source FROM users");
+  const rows = db.exec("SELECT id, name, email, role, avatar, title, section, auth_source FROM users");
   if (!rows.length) return res.json([]);
   const users = rows[0].values.map(r => ({
-    id: r[0], name: r[1], email: r[2], role: r[3], avatar: r[4], authSource: r[5] || 'local',
+    id: r[0], name: r[1], email: r[2], role: r[3], avatar: r[4], title: r[5] || '', section: r[6] || '', authSource: r[7] || 'local',
   }));
   res.json(users);
 });
 
 app.post('/api/users', authLimiter, async (req, res) => {
   const db = await getDb();
-  const { name, email, password, avatar } = req.body;
+  const { name, email, password, avatar, title, section } = req.body;
   if (!name || !email || !password) {
     return res.status(400).json({ error: 'name, email, and password are required' });
   }
@@ -624,14 +628,16 @@ app.post('/api/users', authLimiter, async (req, res) => {
 
   const normalizedEmail = String(email).trim().toLowerCase();
   const safeAvatar = String(avatar || '').trim();
+  const safeTitle = sanitizePlainText(String(title || '')).slice(0, 200);
+  const safeSection = sanitizePlainText(String(section || '')).slice(0, 200);
   const passwordHash = hashPassword(password);
   db.run(
-    "INSERT INTO users (id, name, email, password, password_hash, password_algo, password_migrated_at, role, avatar, auth_source, must_reset_password) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
-    [id, safeName, normalizedEmail, password, passwordHash, 'scrypt', Date.now(), 'user', safeAvatar, 'local', password === 'password' ? 1 : 0]
+    "INSERT INTO users (id, name, email, password, password_hash, password_algo, password_migrated_at, role, avatar, title, section, auth_source, must_reset_password) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+    [id, safeName, normalizedEmail, password, passwordHash, 'scrypt', Date.now(), 'user', safeAvatar, safeTitle, safeSection, 'local', password === 'password' ? 1 : 0]
   );
   saveDb();
   logSecurityEvent(req, 'auth.register.success', { userId: id, email: normalizedEmail });
-  res.json({ id, name: safeName, email: normalizedEmail, role: 'user', avatar: safeAvatar });
+  res.json({ id, name: safeName, email: normalizedEmail, role: 'user', avatar: safeAvatar, title: safeTitle, section: safeSection });
 });
 
 app.post('/api/login', authLimiter, async (req, res) => {
@@ -643,7 +649,7 @@ app.post('/api/login', authLimiter, async (req, res) => {
 
   const normalizedEmail = String(email).trim().toLowerCase();
   const rows = db.exec(
-    "SELECT id, name, email, password, password_hash, password_migrated_at, role, avatar, auth_source, failed_login_count, locked_until FROM users WHERE lower(email) = lower(?)",
+    "SELECT id, name, email, password, password_hash, password_migrated_at, role, avatar, title, section, auth_source, failed_login_count, locked_until FROM users WHERE lower(email) = lower(?)",
     [normalizedEmail]
   );
   if (!rows.length || !rows[0].values.length) {
@@ -656,9 +662,9 @@ app.post('/api/login', authLimiter, async (req, res) => {
   const legacyPassword = row[3] as string | null;
   const passwordHash = row[4] as string | null;
   const migratedAt = row[5] as number | null;
-  const authSource = (row[8] as string | null) || 'local';
-  const failedLoginCount = Number(row[9] || 0);
-  const lockedUntil = row[10] ? Number(row[10]) : null;
+  const authSource = (row[10] as string | null) || 'local';
+  const failedLoginCount = Number(row[11] || 0);
+  const lockedUntil = row[12] ? Number(row[12]) : null;
 
   if (lockedUntil && lockedUntil > Date.now()) {
     logSecurityEvent(req, 'auth.login.locked', { userId, email: normalizedEmail, lockedUntil });
@@ -701,7 +707,7 @@ app.post('/api/login', authLimiter, async (req, res) => {
   applySessionCookie(res, sessionToken);
   issueCsrfToken(res);
   logSecurityEvent(req, 'auth.login.success', { userId, email: normalizedEmail });
-  res.json({ id: row[0], name: row[1], email: row[2], role: row[6], avatar: row[7] });
+  res.json({ id: row[0], name: row[1], email: row[2], role: row[6], avatar: (row[7] as string) || `https://picsum.photos/seed/default/50/50`, title: row[8] || '', section: row[9] || '' });
 });
 
 app.get('/api/session', async (req, res) => {
@@ -717,14 +723,14 @@ app.get('/api/session', async (req, res) => {
     return res.status(401).json({ error: 'No active session' });
   }
 
-  const rows = db.exec("SELECT id, name, email, role, avatar FROM users WHERE id = ?", [session.userId]);
+  const rows = db.exec("SELECT id, name, email, role, avatar, title, section FROM users WHERE id = ?", [session.userId]);
   if (!rows.length || !rows[0].values.length) {
     clearSessionCookie(res);
     return res.status(401).json({ error: 'No active session' });
   }
 
   const row = rows[0].values[0];
-  res.json({ id: row[0], name: row[1], email: row[2], role: row[3], avatar: row[4] });
+  res.json({ id: row[0], name: row[1], email: row[2], role: row[3], avatar: (row[4] as string) || `https://picsum.photos/seed/default/50/50`, title: row[5] || '', section: row[6] || '' });
 });
 
 app.post('/api/logout', async (_req, res) => {
@@ -745,11 +751,14 @@ app.put('/api/users/:id/role', requireAuth, requireAdmin, async (req, res) => {
   res.json({ success: true });
 });
 
-app.put('/api/users/:id', requireAuth, requireAdmin, async (req, res) => {
+app.put('/api/users/:id', requireAuth, requireSelfOrAdmin('id'), async (req, res) => {
   const db = await getDb();
   const currentUser = getCurrentUser(res);
   const safeName = sanitizePlainText(String(req.body?.name || '')).slice(0, 100);
   const normalizedEmail = sanitizePlainText(String(req.body?.email || '')).trim().toLowerCase();
+  const safeAvatar = String(req.body?.avatar || '').trim();
+  const safeTitle = sanitizePlainText(String(req.body?.title || '')).slice(0, 200);
+  const safeSection = sanitizePlainText(String(req.body?.section || '')).slice(0, 200);
 
   if (!safeName || !normalizedEmail) {
     return res.status(400).json({ error: 'name and email are required' });
@@ -770,7 +779,7 @@ app.put('/api/users/:id', requireAuth, requireAdmin, async (req, res) => {
     return res.status(400).json({ error: 'Email already registered' });
   }
 
-  db.run('UPDATE users SET name = ?, email = ? WHERE id = ?', [safeName, normalizedEmail, req.params.id]);
+  db.run('UPDATE users SET name = ?, email = ?, avatar = ?, title = ?, section = ? WHERE id = ?', [safeName, normalizedEmail, safeAvatar, safeTitle, safeSection, req.params.id]);
   saveDb();
   logSecurityEvent(req, 'auth.user.profile.updated', {
     actorUserId: currentUser.id,
@@ -782,6 +791,10 @@ app.put('/api/users/:id', requireAuth, requireAdmin, async (req, res) => {
     name: safeName,
     email: normalizedEmail,
     authSource: targetAuthSource,
+    avatar: safeAvatar,
+    title: safeTitle,
+    section: safeSection,
+    role: currentUser.role,
   });
 });
 
