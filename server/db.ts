@@ -29,10 +29,25 @@ export async function getDb(): Promise<Database> {
       name TEXT NOT NULL,
       email TEXT UNIQUE NOT NULL,
       password TEXT NOT NULL DEFAULT 'password',
+      password_hash TEXT,
+      password_algo TEXT,
+      password_migrated_at INTEGER,
+      must_reset_password INTEGER NOT NULL DEFAULT 0,
+      auth_source TEXT NOT NULL DEFAULT 'local',
+      failed_login_count INTEGER NOT NULL DEFAULT 0,
+      locked_until INTEGER,
       role TEXT NOT NULL DEFAULT 'user',
       avatar TEXT
     );
   `);
+
+  ensureColumn(db, 'users', 'password_hash', 'TEXT');
+  ensureColumn(db, 'users', 'password_algo', 'TEXT');
+  ensureColumn(db, 'users', 'password_migrated_at', 'INTEGER');
+  ensureColumn(db, 'users', 'must_reset_password', 'INTEGER NOT NULL DEFAULT 0');
+  ensureColumn(db, 'users', 'auth_source', "TEXT NOT NULL DEFAULT 'local'");
+  ensureColumn(db, 'users', 'failed_login_count', 'INTEGER NOT NULL DEFAULT 0');
+  ensureColumn(db, 'users', 'locked_until', 'INTEGER');
 
   db.run(`
     CREATE TABLE IF NOT EXISTS sections (
@@ -292,6 +307,15 @@ function seedData(db: Database) {
     "INSERT INTO notifications (id, user_id, type, message, article_id, timestamp, read) VALUES (?,?,?,?,?,?,?)",
     ['n1', 'u3', 'new_article', 'Alice Admin published "SWE Migration Project Kickoff"', 'a4', now - 400000, 0]
   );
+}
+
+function ensureColumn(db: Database, tableName: string, columnName: string, definition: string) {
+  const info = db.exec(`PRAGMA table_info(${tableName})`);
+  const columns = info[0]?.values || [];
+  const exists = columns.some((row) => row[1] === columnName);
+  if (!exists) {
+    db.run(`ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${definition}`);
+  }
 }
 
 export function saveDb() {

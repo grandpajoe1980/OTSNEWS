@@ -1,5 +1,6 @@
 import { SAML, type SamlConfig as NodeSamlConfig, generateServiceProviderMetadata } from '@node-saml/node-saml';
 import { XMLParser } from 'fast-xml-parser';
+import { isIP } from 'net';
 import type { SamlConfig } from '../types';
 
 const DEFAULT_NAME_ID_FORMAT = 'urn:oasis:names:tc:SAML:1.1:nameid-format:emailAddress';
@@ -12,6 +13,58 @@ const parser = new XMLParser({
   parseTagValue: true,
   trimValues: true,
 });
+
+const MAX_METADATA_XML_BYTES = 512 * 1024;
+const METADATA_FETCH_TIMEOUT_MS = 8000;
+
+function isPrivateIpv4(value: string): boolean {
+  if (!value) return false;
+  if (value === '127.0.0.1') return true;
+  const parts = value.split('.').map((p) => Number(p));
+  if (parts.length !== 4 || parts.some((p) => Number.isNaN(p) || p < 0 || p > 255)) return false;
+  if (parts[0] === 10) return true;
+  if (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31) return true;
+  if (parts[0] === 192 && parts[1] === 168) return true;
+  if (parts[0] === 169 && parts[1] === 254) return true;
+  if (parts[0] === 0) return true;
+  return false;
+}
+
+function isPrivateIpv6(value: string): boolean {
+  const normalized = value.toLowerCase();
+  return normalized === '::1'
+    || normalized.startsWith('fc')
+    || normalized.startsWith('fd')
+    || normalized.startsWith('fe80');
+}
+
+function assertSafeMetadataUrl(rawUrl: string): URL {
+  let parsed: URL;
+  try {
+    parsed = new URL(rawUrl);
+  } catch {
+    throw new Error('Metadata URL is invalid');
+  }
+
+  if (!['http:', 'https:'].includes(parsed.protocol)) {
+    throw new Error('Metadata URL must use http or https');
+  }
+
+  const host = (parsed.hostname || '').toLowerCase();
+  if (!host || host === 'localhost' || host.endsWith('.local')) {
+    throw new Error('Metadata URL host is not allowed');
+  }
+
+  const ipType = isIP(host);
+  if (ipType === 4 && isPrivateIpv4(host)) {
+    throw new Error('Metadata URL private IPv4 hosts are not allowed');
+  }
+  if (ipType === 6 && isPrivateIpv6(host)) {
+    throw new Error('Metadata URL private IPv6 hosts are not allowed');
+  }
+
+  return parsed;
+}
 
 export type ParsedIdpMetadata = {
   idpEntityId: string;
@@ -91,11 +144,26 @@ export async function parseIdpMetadata(options: { metadataMode: 'url' | 'xml'; m
     if (!options.metadataUrl?.trim()) {
       throw new Error('Metadata URL is required when metadata mode is URL');
     }
-    const response = await fetch(options.metadataUrl.trim());
+
+    const safeUrl = assertSafeMetadataUrl(options.metadataUrl.trim());
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), METADATA_FETCH_TIMEOUT_MS);
+    const response = await fetch(safeUrl.toString(), { signal: controller.signal });
+    clearTimeout(timeout);
+
     if (!response.ok) {
       throw new Error(`Failed to load metadata URL (${response.status})`);
     }
+
+    const contentLength = Number(response.headers.get('content-length') || '0');
+    if (contentLength > MAX_METADATA_XML_BYTES) {
+      throw new Error('Metadata response is too large');
+    }
+
     metadataXml = await response.text();
+    if (Buffer.byteLength(metadataXml, 'utf8') > MAX_METADATA_XML_BYTES) {
+      throw new Error('Metadata XML exceeds size limit');
+    }
   }
 
   if (!metadataXml) {

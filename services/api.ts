@@ -3,12 +3,63 @@ import { Article, Attachment, Comment, DigestPreference, Notification, SamlConfi
 
 const BASE = '/api';
 
+let csrfTokenCache: string | null = null;
+
+function isStateChangingMethod(method?: string): boolean {
+  const normalized = (method || 'GET').toUpperCase();
+  return normalized === 'POST' || normalized === 'PUT' || normalized === 'PATCH' || normalized === 'DELETE';
+}
+
+async function getCsrfToken(): Promise<string> {
+  if (csrfTokenCache) return csrfTokenCache;
+  const res = await fetch(`${BASE}/csrf-token`, {
+    method: 'GET',
+    credentials: 'include',
+    cache: 'no-store',
+  });
+  if (!res.ok) {
+    throw new Error(`API ${res.status}: ${res.statusText}`);
+  }
+  const data = await res.json() as { csrfToken?: string };
+  if (!data.csrfToken) {
+    throw new Error('Missing CSRF token');
+  }
+  csrfTokenCache = data.csrfToken;
+  return csrfTokenCache;
+}
+
+function clearCsrfTokenCache() {
+  csrfTokenCache = null;
+}
+
 async function json<T>(url: string, init?: RequestInit): Promise<T> {
+  const headers = new Headers(init?.headers || {});
+  if (isStateChangingMethod(init?.method)) {
+    const csrfToken = await getCsrfToken();
+    headers.set('x-csrf-token', csrfToken);
+  }
+
   const res = await fetch(url, {
     credentials: 'include',
     ...init,
+    headers,
   });
-  if (!res.ok) throw new Error(`API ${res.status}: ${res.statusText}`);
+
+  if (res.status === 403 && isStateChangingMethod(init?.method)) {
+    clearCsrfTokenCache();
+  }
+  if (!res.ok) {
+    let message = `API ${res.status}: ${res.statusText}`;
+    try {
+      const errorBody = await res.json() as { error?: string };
+      if (errorBody?.error) {
+        message = errorBody.error;
+      }
+    } catch {
+      // keep default message
+    }
+    throw new Error(message);
+  }
   return res.json() as Promise<T>;
 }
 
@@ -31,6 +82,7 @@ export async function fetchSessionUser(): Promise<User> {
 
 export async function logoutUser(): Promise<void> {
   await json<any>(`${BASE}/logout`, { method: 'POST' });
+  clearCsrfTokenCache();
 }
 
 export async function createUser(user: User & { password?: string }): Promise<User> {

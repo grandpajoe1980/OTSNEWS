@@ -10,9 +10,16 @@ This project now runs locally using SQLite only.
 
 1. Install dependencies:
    `npm install`
-2. Seed local SQLite database (creates `otsnews.db` and seeds default data if empty):
+2. Set required server secrets (PowerShell example):
+   `$env:SESSION_SECRET="change-me-long-random-secret"`
+   `$env:EMAIL_CONFIG_KEY="change-me-separate-email-key"`
+   Optional migration window override:
+   `$env:PASSWORD_MIGRATION_WINDOW_DAYS="30"`
+   Optional origin allowlist override:
+   `$env:CORS_ORIGINS="http://127.0.0.1:3000,http://localhost:3000"`
+3. Seed local SQLite database (creates `otsnews.db` and seeds default data if empty):
    `npm run db:seed`
-3. Start API + client:
+4. Start API + client:
    `npm run dev`
 
 ## Notes
@@ -20,6 +27,12 @@ This project now runs locally using SQLite only.
 - API server runs at `http://127.0.0.1:3001`.
 - Frontend uses `/api` and Vite proxies to the local API.
 - No Turso / Vercel database is required.
+- Email credentials are encrypted at rest using `EMAIL_CONFIG_KEY`.
+
+## Security Hardening Checklist
+
+- [x] Admin local-password reset flow wired frontend → API → database (hashed + salted storage).
+- [ ] Replace modal `alert(...)` error handling in admin password reset with inline form error UI.
 
 ## SAML / ADFS SSO
 

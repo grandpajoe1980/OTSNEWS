@@ -124,6 +124,7 @@ export default function App() {
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const [resetPasswordUserId, setResetPasswordUserId] = useState<string | null>(null);
   const [resetPasswordValue, setResetPasswordValue] = useState('');
+  const [commentError, setCommentError] = useState('');
 
   // --- Theme Effect ---
   useEffect(() => {
@@ -148,16 +149,25 @@ export default function App() {
   // --- Load Data from SQLite API ---
   const refreshData = useCallback(async () => {
     try {
-      const [u, s, a, se] = await Promise.all([
+      const [usersResult, sectionsResult, articlesResult, sectionEditorsResult] = await Promise.allSettled([
         api.fetchUsers(),
         api.fetchSections(),
         api.fetchArticles(),
         api.fetchSectionEditors(),
       ]);
-      setUsers(u);
-      setSections(s);
-      setArticles(a);
-      setSectionEditors(se);
+
+      if (usersResult.status === 'fulfilled') {
+        setUsers(usersResult.value);
+      }
+      if (sectionsResult.status === 'fulfilled') {
+        setSections(sectionsResult.value);
+      }
+      if (articlesResult.status === 'fulfilled') {
+        setArticles(articlesResult.value);
+      }
+      if (sectionEditorsResult.status === 'fulfilled') {
+        setSectionEditors(sectionEditorsResult.value);
+      }
     } catch (err) {
       console.error('Failed to load data from API:', err);
     } finally {
@@ -173,8 +183,11 @@ export default function App() {
     try {
       const user = await api.fetchSessionUser();
       setCurrentUser(user);
-    } catch {
-      setCurrentUser(null);
+    } catch (err: any) {
+      const message = String(err?.message || '');
+      if (message.includes('No active session') || message.includes('401')) {
+        setCurrentUser(null);
+      }
     }
   }, []);
 
@@ -461,18 +474,29 @@ export default function App() {
     setEditorData(prev => ({ ...prev, imageUrl: undefined }));
   };
 
-  const postComment = async (text: string) => {
-    if (!currentUser || !currentArticle) return;
+  const postComment = async (text: string): Promise<boolean> => {
+    if (!currentUser || !currentArticle) return false;
+    const trimmed = text.trim();
+    if (!trimmed) return false;
+
     const newComment: Comment = {
       id: `c_${Date.now()}`,
       authorId: currentUser.id,
       authorName: currentUser.name,
       authorAvatar: currentUser.avatar,
-      content: text,
+      content: trimmed,
       timestamp: Date.now(),
     };
-    await api.postComment(currentArticle.id, newComment);
-    await refreshData();
+
+    try {
+      await api.postComment(currentArticle.id, newComment);
+      await refreshData();
+      setCommentError('');
+      return true;
+    } catch (err: any) {
+      setCommentError(err?.message || 'Failed to post comment');
+      return false;
+    }
   };
 
   // --- Admin Actions ---
@@ -1112,7 +1136,7 @@ export default function App() {
                                   <p className="text-sm text-gray-700">{comment.content}</p>
                                   {canComment && (
                                     <button
-                                      onClick={() => {
+                                      onClick={async () => {
                                         const text = prompt('Reply to this comment:');
                                         if (text && text.trim() && currentUser && currentArticle) {
                                           const newReply: Comment = {
@@ -1124,7 +1148,13 @@ export default function App() {
                                             timestamp: Date.now(),
                                             parentId: comment.id,
                                           };
-                                          api.postComment(currentArticle.id, newReply).then(() => refreshData());
+                                          try {
+                                            await api.postComment(currentArticle.id, newReply);
+                                            await refreshData();
+                                            setCommentError('');
+                                          } catch (err: any) {
+                                            setCommentError(err?.message || 'Failed to post reply');
+                                          }
                                         }
                                       }}
                                       className="mt-1 text-xs text-ots-600 hover:text-ots-700 flex items-center"
@@ -1152,12 +1182,21 @@ export default function App() {
                         <div className="flex gap-4 items-start">
                           <img src={currentUser?.avatar} className="w-8 h-8 rounded-full hidden sm:block" alt="" />
                           <div className="flex-1">
-                            <form onSubmit={(e) => {
+                            {commentError && (
+                              <div className="mb-3 rounded border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
+                                {commentError}
+                              </div>
+                            )}
+                            <form onSubmit={async (e) => {
                               e.preventDefault();
                               const input = (e.target as any).elements.comment;
                               if (input.value.trim()) {
-                                postComment(input.value);
-                                input.value = '';
+                                const posted = await postComment(input.value);
+                                if (posted) {
+                                  input.value = '';
+                                }
+                              } else {
+                                setCommentError('Comment content is required');
                               }
                             }} className="relative">
                               <textarea
@@ -1165,6 +1204,11 @@ export default function App() {
                                 className="w-full border border-gray-300 rounded-lg p-3 pr-12 text-sm focus:ring-2 focus:ring-ots-500 focus:border-transparent outline-none resize-none bg-card text-gray-900"
                                 rows={3}
                                 placeholder="Write a respectful comment..."
+                                onChange={() => {
+                                  if (commentError) {
+                                    setCommentError('');
+                                  }
+                                }}
                               ></textarea>
                               <button type="submit" className="absolute bottom-3 right-3 p-1.5 bg-ots-600 text-white rounded-md hover:bg-ots-700 transition-colors">
                                 <Send size={16} />
@@ -1510,8 +1554,9 @@ export default function App() {
                                     </button>
                                     <button
                                       onClick={() => { setResetPasswordUserId(user.id); setResetPasswordValue(''); }}
+                                      disabled={user.authSource === 'saml'}
                                       className="text-amber-500 hover:text-amber-700 p-1 rounded hover:bg-amber-50"
-                                      title="Reset Password"
+                                      title={user.authSource === 'saml' ? 'SAML users do not have local passwords' : 'Reset Password'}
                                     >
                                       <KeyRound size={16} />
                                     </button>
@@ -2331,11 +2376,16 @@ export default function App() {
             <p className="text-sm text-gray-500 mb-4">
               Set a new password for <strong>{users.find(u => u.id === resetPasswordUserId)?.name || 'this user'}</strong>
             </p>
+            {users.find(u => u.id === resetPasswordUserId)?.authSource === 'saml' && (
+              <div className="mb-4 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
+                This account authenticates through SAML and does not support local password reset.
+              </div>
+            )}
             <input
               type="text"
               value={resetPasswordValue}
               onChange={(e) => setResetPasswordValue(e.target.value)}
-              placeholder="Enter new password (min 4 chars)"
+              placeholder="Enter new password (min 8 chars)"
               className="block w-full border border-gray-300 rounded-lg px-4 py-2 mb-4 text-sm bg-card text-gray-900 focus:ring-ots-500 focus:border-ots-500"
               autoFocus
             />
@@ -2348,12 +2398,18 @@ export default function App() {
               </button>
               <button
                 onClick={async () => {
-                  if (resetPasswordValue.length < 4) return;
-                  await api.resetUserPassword(resetPasswordUserId, resetPasswordValue);
-                  setResetPasswordUserId(null);
-                  setResetPasswordValue('');
+                  const resetUser = users.find(u => u.id === resetPasswordUserId);
+                  if (!resetUser || resetUser.authSource === 'saml') return;
+                  if (resetPasswordValue.length < 8) return;
+                  try {
+                    await api.resetUserPassword(resetPasswordUserId, resetPasswordValue);
+                    setResetPasswordUserId(null);
+                    setResetPasswordValue('');
+                  } catch (err: any) {
+                    alert(err?.message || 'Failed to reset password');
+                  }
                 }}
-                disabled={resetPasswordValue.length < 4}
+                disabled={resetPasswordValue.length < 8 || users.find(u => u.id === resetPasswordUserId)?.authSource === 'saml'}
                 className="px-4 py-2 bg-amber-500 text-white rounded-lg hover:bg-amber-600 font-medium text-sm disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 Set Password

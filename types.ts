@@ -14,6 +14,7 @@ export interface User {
   password?: string;
   role: UserRole;
   avatar: string;
+  authSource?: 'local' | 'saml';
 }
 
 export interface Comment {
