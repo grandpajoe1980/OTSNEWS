@@ -116,3 +116,17 @@ body {
 	border-radius: 0.5rem;
 	overflow-x: auto;
 }
+
+.article-content a {
+	color: var(--brand-600);
+	text-decoration: underline;
+	text-decoration-color: var(--gray-400);
+	text-decoration-thickness: 1px;
+	text-underline-offset: 2px;
+	transition: text-decoration-color 0.2s ease, color 0.2s ease;
+}
+
+.article-content a:hover,
+.article-content a:focus-visible {
+	text-decoration-color: var(--brand-600);
+}

@@ -1,5 +1,6 @@
 import express from 'express';
 import cors from 'cors';
+import { createHmac, timingSafeEqual } from 'crypto';
 import { getDb, saveDb } from './db';
 import { getEmailConfig, testConnection, sendTestEmail } from './email';
 import type { EmailConfig } from '../types';
@@ -7,6 +8,83 @@ import type { EmailConfig } from '../types';
 const app = express();
 app.use(cors());
 app.use(express.json({ limit: '10mb' })); // large limit for base64 cover images & attachments
+
+const SESSION_COOKIE_NAME = 'ots_session';
+const SESSION_TTL_MS = 1000 * 60 * 60 * 24 * 14; // 14 days
+const SESSION_SECRET = process.env.SESSION_SECRET || 'ots-news-dev-session-secret';
+
+function base64UrlEncode(value: string): string {
+  return Buffer.from(value, 'utf8').toString('base64url');
+}
+
+function base64UrlDecode(value: string): string {
+  return Buffer.from(value, 'base64url').toString('utf8');
+}
+
+function signPayload(payload: string): string {
+  return createHmac('sha256', SESSION_SECRET).update(payload).digest('base64url');
+}
+
+function createSessionToken(userId: string): string {
+  const expiresAt = Date.now() + SESSION_TTL_MS;
+  const payload = base64UrlEncode(JSON.stringify({ userId, expiresAt }));
+  const signature = signPayload(payload);
+  return `${payload}.${signature}`;
+}
+
+function verifySessionToken(token?: string): { userId: string; expiresAt: number } | null {
+  if (!token) return null;
+
+  const parts = token.split('.');
+  if (parts.length !== 2) return null;
+
+  const [payload, signature] = parts;
+  const expectedSignature = signPayload(payload);
+  const sigBuffer = Buffer.from(signature);
+  const expectedBuffer = Buffer.from(expectedSignature);
+  if (sigBuffer.length !== expectedBuffer.length || !timingSafeEqual(sigBuffer, expectedBuffer)) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(base64UrlDecode(payload)) as { userId?: string; expiresAt?: number };
+    if (!parsed.userId || !parsed.expiresAt || parsed.expiresAt < Date.now()) {
+      return null;
+    }
+    return { userId: parsed.userId, expiresAt: parsed.expiresAt };
+  } catch {
+    return null;
+  }
+}
+
+function getCookieValue(cookieHeader: string | undefined, name: string): string | undefined {
+  if (!cookieHeader) return undefined;
+  const parts = cookieHeader.split(';');
+  for (const part of parts) {
+    const [k, ...rest] = part.trim().split('=');
+    if (k === name) return rest.join('=');
+  }
+  return undefined;
+}
+
+function applySessionCookie(res: express.Response, token: string): void {
+  res.cookie(SESSION_COOKIE_NAME, token, {
+    httpOnly: true,
+    sameSite: 'lax',
+    secure: process.env.NODE_ENV === 'production',
+    maxAge: SESSION_TTL_MS,
+    path: '/',
+  });
+}
+
+function clearSessionCookie(res: express.Response): void {
+  res.clearCookie(SESSION_COOKIE_NAME, {
+    httpOnly: true,
+    sameSite: 'lax',
+    secure: process.env.NODE_ENV === 'production',
+    path: '/',
+  });
+}
 
 // ─── USERS ───────────────────────────────────────────────
 app.get('/api/users', async (_req, res) => {
@@ -42,7 +120,37 @@ app.post('/api/login', async (req, res) => {
   if (row[3] !== password) {
     return res.status(401).json({ error: 'Invalid email or password' });
   }
+  const sessionToken = createSessionToken(row[0] as string);
+  applySessionCookie(res, sessionToken);
   res.json({ id: row[0], name: row[1], email: row[2], role: row[4], avatar: row[5] });
+});
+
+app.get('/api/session', async (req, res) => {
+  res.set('Cache-Control', 'no-store, no-cache, must-revalidate, private');
+  res.set('Pragma', 'no-cache');
+  res.set('Expires', '0');
+
+  const db = await getDb();
+  const token = getCookieValue(req.headers.cookie, SESSION_COOKIE_NAME);
+  const session = verifySessionToken(token);
+  if (!session) {
+    clearSessionCookie(res);
+    return res.status(401).json({ error: 'No active session' });
+  }
+
+  const rows = db.exec("SELECT id, name, email, role, avatar FROM users WHERE id = ?", [session.userId]);
+  if (!rows.length || !rows[0].values.length) {
+    clearSessionCookie(res);
+    return res.status(401).json({ error: 'No active session' });
+  }
+
+  const row = rows[0].values[0];
+  res.json({ id: row[0], name: row[1], email: row[2], role: row[3], avatar: row[4] });
+});
+
+app.post('/api/logout', async (_req, res) => {
+  clearSessionCookie(res);
+  res.json({ success: true });
 });
 
 app.put('/api/users/:id/role', async (req, res) => {

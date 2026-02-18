@@ -4,7 +4,10 @@ import { Article, Attachment, Comment, DigestPreference, Notification, Section, 
 const BASE = '/api';
 
 async function json<T>(url: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(url, init);
+  const res = await fetch(url, {
+    credentials: 'include',
+    ...init,
+  });
   if (!res.ok) throw new Error(`API ${res.status}: ${res.statusText}`);
   return res.json() as Promise<T>;
 }
@@ -20,6 +23,14 @@ export async function loginUser(email: string, password: string): Promise<User> 
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ email, password }),
   });
+}
+
+export async function fetchSessionUser(): Promise<User> {
+  return json<User>(`${BASE}/session`, { cache: 'no-store' });
+}
+
+export async function logoutUser(): Promise<void> {
+  await json<any>(`${BASE}/logout`, { method: 'POST' });
 }
 
 export async function createUser(user: User & { password?: string }): Promise<User> {

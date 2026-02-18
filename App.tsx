@@ -145,6 +145,43 @@ export default function App() {
     refreshData();
   }, [refreshData]);
 
+  const restoreSession = useCallback(async () => {
+    try {
+      const user = await api.fetchSessionUser();
+      setCurrentUser(user);
+    } catch {
+      setCurrentUser(null);
+    }
+  }, []);
+
+  useEffect(() => {
+    restoreSession();
+  }, [restoreSession]);
+
+  useEffect(() => {
+    const handlePageShow = () => {
+      restoreSession();
+    };
+    const handleWindowFocus = () => {
+      restoreSession();
+    };
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        restoreSession();
+      }
+    };
+
+    window.addEventListener('pageshow', handlePageShow);
+    window.addEventListener('focus', handleWindowFocus);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      window.removeEventListener('pageshow', handlePageShow);
+      window.removeEventListener('focus', handleWindowFocus);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [restoreSession]);
+
   const cycleTheme = () => {
     if (theme === 'light') setTheme('dark');
     else if (theme === 'dark') setTheme('princess');
@@ -215,7 +252,8 @@ export default function App() {
       };
       const created = await api.createUser(newUser);
       setUsers(prev => [...prev, created]);
-      setCurrentUser(created);
+      const loggedInUser = await api.loginUser(newUser.email, regPassword);
+      setCurrentUser(loggedInUser);
       setShowLoginModal(false);
       setRegName('');
       setRegEmail('');
@@ -227,7 +265,10 @@ export default function App() {
     }
   };
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    try {
+      await api.logoutUser();
+    } catch {}
     setCurrentUser(null);
     setView('feed');
     setActiveSectionId(undefined);
@@ -933,7 +974,7 @@ export default function App() {
                 )}
 
                 {/* Content */}
-                <div className="prose prose-blue max-w-none mb-8" dangerouslySetInnerHTML={{ __html: currentArticle.content }} />
+                <div className="prose prose-blue article-content max-w-none mb-8" dangerouslySetInnerHTML={{ __html: currentArticle.content }} />
 
                 {/* Attachments */}
                 {currentArticle.attachments && currentArticle.attachments.length > 0 && (
