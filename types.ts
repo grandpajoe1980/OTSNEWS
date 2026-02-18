@@ -91,3 +91,41 @@ export interface EmailConfig {
   fromName: string;
   enabled: boolean;
 }
+
+export type SamlProviderType = 'saml' | 'adfs' | 'active-directory';
+export type SamlMetadataMode = 'url' | 'xml';
+
+export interface SamlConfig {
+  providerType: SamlProviderType;
+  enabled: boolean;
+  metadataMode: SamlMetadataMode;
+  metadataUrl: string;
+  metadataXml: string;
+  idpEntityId: string;
+  entryPoint: string;
+  idpCert: string;
+  logoutUrl: string;
+  spEntityId: string;
+  acsUrl: string;
+  nameIdFormat: string;
+  emailAttribute: string;
+  displayNameAttribute: string;
+}
+
+export interface SamlPublicConfig {
+  enabled: boolean;
+  metadataUrl: string;
+  spEntityId: string;
+  acsUrl: string;
+}
+
+export interface SamlConfigTestResult {
+  success: boolean;
+  error?: string;
+  parsed?: {
+    idpEntityId: string;
+    entryPoint: string;
+    idpCert: string;
+    logoutUrl: string;
+  };
+}

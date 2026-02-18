@@ -20,3 +20,25 @@ This project now runs locally using SQLite only.
 - API server runs at `http://127.0.0.1:3001`.
 - Frontend uses `/api` and Vite proxies to the local API.
 - No Turso / Vercel database is required.
+
+## SAML / ADFS SSO
+
+- Sign in as an admin and open Admin Dashboard → SAML / ADFS.
+- Configure IdP metadata using either:
+   - Metadata URL, or
+   - Pasted metadata XML.
+- Use **Test Metadata** to parse and validate the IdP details.
+- Save the configuration, then enable **Show SAML Login Option** to display SAML sign-in on the login modal.
+
+### Service Provider metadata (for IdP onboarding)
+
+- URL: `http://127.0.0.1:3001/api/auth/saml/metadata`
+- The admin SAML page includes:
+   - Copyable metadata URL
+   - Direct XML download button
+
+### SAML endpoints
+
+- Login redirect: `/api/auth/saml/login`
+- Assertion callback (ACS): `/api/auth/saml/callback`
+- SP metadata XML: `/api/auth/saml/metadata`

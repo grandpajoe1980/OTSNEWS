@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
-import { User, Article, UserRole, Comment, Theme, Section, SectionEditor, Notification, DigestPreference, Attachment, EmailConfig, EmailProvider } from './types';
+import { User, Article, UserRole, Comment, Theme, Section, SectionEditor, Notification, DigestPreference, Attachment, EmailConfig, EmailProvider, SamlConfig, SamlPublicConfig } from './types';
 import * as api from './services/api';
 import { Sidebar } from './components/Sidebar';
 import { ArticleCard } from './components/ArticleCard';
@@ -39,7 +39,7 @@ export default function App() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
 
   // --- Admin State ---
-  const [adminTab, setAdminTab] = useState<'users' | 'sections' | 'editors' | 'email'>('users');
+  const [adminTab, setAdminTab] = useState<'users' | 'sections' | 'editors' | 'email' | 'saml'>('users');
 
   // --- Email Config State ---
   const [emailConfig, setEmailConfig] = useState<EmailConfig>({
@@ -56,6 +56,30 @@ export default function App() {
   const [emailTestStatus, setEmailTestStatus] = useState<{ loading: boolean; success?: boolean; error?: string }>({ loading: false });
   const [emailSaveStatus, setEmailSaveStatus] = useState<{ saving: boolean; saved?: boolean }>({ saving: false });
   const [emailTestEmailTo, setEmailTestEmailTo] = useState('');
+  const [samlConfig, setSamlConfig] = useState<SamlConfig>({
+    providerType: 'saml',
+    enabled: false,
+    metadataMode: 'url',
+    metadataUrl: '',
+    metadataXml: '',
+    idpEntityId: '',
+    entryPoint: '',
+    idpCert: '',
+    logoutUrl: '',
+    spEntityId: `${window.location.origin}/api/auth/saml/metadata`,
+    acsUrl: `${window.location.origin}/api/auth/saml/callback`,
+    nameIdFormat: 'urn:oasis:names:tc:SAML:1.1:nameid-format:emailAddress',
+    emailAttribute: 'email',
+    displayNameAttribute: 'name',
+  });
+  const [samlPublicConfig, setSamlPublicConfig] = useState<SamlPublicConfig>({
+    enabled: false,
+    metadataUrl: api.getSamlMetadataUrl(),
+    spEntityId: `${window.location.origin}/api/auth/saml/metadata`,
+    acsUrl: `${window.location.origin}/api/auth/saml/callback`,
+  });
+  const [samlTestStatus, setSamlTestStatus] = useState<{ loading: boolean; success?: boolean; error?: string }>({ loading: false });
+  const [samlSaveStatus, setSamlSaveStatus] = useState<{ saving: boolean; saved?: boolean; error?: string }>({ saving: false });
   const [newSectionTitle, setNewSectionTitle] = useState('');
   const [newSubsectionTitle, setNewSubsectionTitle] = useState('');
   const [selectedSectionForSub, setSelectedSectionForSub] = useState<string>('');
@@ -159,6 +183,18 @@ export default function App() {
   }, [restoreSession]);
 
   useEffect(() => {
+    const loadSamlPublicConfig = async () => {
+      try {
+        const config = await api.fetchSamlPublicConfig();
+        setSamlPublicConfig(config);
+      } catch {
+        // keep defaults if unavailable
+      }
+    };
+    loadSamlPublicConfig();
+  }, []);
+
+  useEffect(() => {
     const handlePageShow = () => {
       restoreSession();
     };
@@ -236,6 +272,10 @@ export default function App() {
     } catch (err: any) {
       setLoginError('Invalid email or password');
     }
+  };
+
+  const handleSamlLogin = () => {
+    window.location.href = api.getSamlLoginUrl();
   };
 
   const handleRegister = async () => {
@@ -538,6 +578,34 @@ export default function App() {
     }
   };
 
+  const loadSamlConfig = async () => {
+    try {
+      const config = await api.fetchSamlConfig();
+      if (config) setSamlConfig(config);
+    } catch (err) {
+      console.error('Failed to load SAML config:', err);
+    }
+  };
+
+  const downloadSamlMetadata = async () => {
+    try {
+      const response = await fetch('/api/auth/saml/metadata', { credentials: 'include' });
+      if (!response.ok) throw new Error('Failed to generate metadata XML');
+      const xml = await response.text();
+      const blob = new Blob([xml], { type: 'application/samlmetadata+xml' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = 'otsnews-sp-metadata.xml';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error('Failed to download metadata XML:', err);
+    }
+  };
+
   // --- Views ---
 
   if (loading) {
@@ -664,6 +732,15 @@ export default function App() {
             >
               Sign In
             </button>
+
+            {samlPublicConfig.enabled && (
+              <button
+                onClick={handleSamlLogin}
+                className="w-full bg-white text-gray-800 py-2.5 rounded-lg font-medium border border-gray-300 hover:bg-gray-50 transition-colors"
+              >
+                Sign In with SAML / ADFS
+              </button>
+            )}
 
             <button
               onClick={() => { setIsRegistering(true); setLoginError(''); }}
@@ -1367,6 +1444,15 @@ export default function App() {
                   >
                     Email Settings
                   </button>
+                  <button
+                    onClick={async () => {
+                      setAdminTab('saml');
+                      await loadSamlConfig();
+                    }}
+                    className={`flex-1 py-4 text-sm font-medium text-center transition-colors ${adminTab === 'saml' ? 'text-ots-600 border-b-2 border-ots-600 bg-ots-50' : 'text-gray-500 hover:text-gray-900'}`}
+                  >
+                    SAML / ADFS
+                  </button>
                 </div>
 
                 <div className="p-6">
@@ -1911,6 +1997,258 @@ export default function App() {
                           </ul>
                         </div>
                       )}
+                    </div>
+                  )}
+
+                  {/* SAML Config Tab */}
+                  {adminTab === 'saml' && (
+                    <div className="space-y-6">
+                      <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
+                        <div className="flex items-center justify-between mb-4">
+                          <div>
+                            <h3 className="text-sm font-bold text-gray-900">Show SAML Login Option</h3>
+                            <p className="text-xs text-gray-500 mt-0.5">Controls whether users see the SAML sign-in button on the login modal</p>
+                          </div>
+                          <button
+                            onClick={() => setSamlConfig(prev => ({ ...prev, enabled: !prev.enabled }))}
+                            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${samlConfig.enabled ? 'bg-ots-600' : 'bg-gray-300'}`}
+                          >
+                            <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${samlConfig.enabled ? 'translate-x-6' : 'translate-x-1'}`} />
+                          </button>
+                        </div>
+
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                          {([
+                            { id: 'saml', label: 'Generic SAML 2.0' },
+                            { id: 'adfs', label: 'ADFS' },
+                            { id: 'active-directory', label: 'Active Directory (SAML)' },
+                          ] as const).map(p => (
+                            <button
+                              key={p.id}
+                              onClick={() => setSamlConfig(prev => ({ ...prev, providerType: p.id }))}
+                              className={`p-3 rounded-lg border text-left text-sm font-medium transition-colors ${samlConfig.providerType === p.id
+                                ? 'border-ots-600 bg-ots-50 text-ots-700'
+                                : 'border-gray-200 bg-card text-gray-700 hover:border-gray-300'
+                                }`}
+                            >
+                              {p.label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
+                        <h3 className="text-sm font-bold text-gray-900 mb-4 uppercase tracking-wide">Identity Provider Metadata</h3>
+                        <div className="flex gap-4 mb-4">
+                          <label className="inline-flex items-center text-sm text-gray-700">
+                            <input
+                              type="radio"
+                              checked={samlConfig.metadataMode === 'url'}
+                              onChange={() => setSamlConfig(prev => ({ ...prev, metadataMode: 'url' }))}
+                              className="mr-2"
+                            />
+                            Metadata URL
+                          </label>
+                          <label className="inline-flex items-center text-sm text-gray-700">
+                            <input
+                              type="radio"
+                              checked={samlConfig.metadataMode === 'xml'}
+                              onChange={() => setSamlConfig(prev => ({ ...prev, metadataMode: 'xml' }))}
+                              className="mr-2"
+                            />
+                            Paste Metadata XML
+                          </label>
+                        </div>
+
+                        {samlConfig.metadataMode === 'url' ? (
+                          <div>
+                            <label className="block text-xs font-semibold text-gray-500 mb-1">Metadata URL</label>
+                            <input
+                              type="url"
+                              value={samlConfig.metadataUrl}
+                              onChange={e => setSamlConfig(prev => ({ ...prev, metadataUrl: e.target.value }))}
+                              placeholder="https://idp.example.com/FederationMetadata/2007-06/FederationMetadata.xml"
+                              className="w-full border border-gray-300 rounded px-3 py-2 text-sm bg-card text-gray-900"
+                            />
+                          </div>
+                        ) : (
+                          <div>
+                            <label className="block text-xs font-semibold text-gray-500 mb-1">Metadata XML</label>
+                            <textarea
+                              value={samlConfig.metadataXml}
+                              onChange={e => setSamlConfig(prev => ({ ...prev, metadataXml: e.target.value }))}
+                              placeholder="Paste full IdP metadata XML"
+                              rows={8}
+                              className="w-full border border-gray-300 rounded px-3 py-2 text-sm bg-card text-gray-900"
+                            />
+                          </div>
+                        )}
+
+                        <div className="mt-4 flex flex-wrap gap-3">
+                          <button
+                            onClick={async () => {
+                              setSamlTestStatus({ loading: true });
+                              try {
+                                const result = await api.testSamlConfig({
+                                  metadataMode: samlConfig.metadataMode,
+                                  metadataUrl: samlConfig.metadataUrl,
+                                  metadataXml: samlConfig.metadataXml,
+                                });
+                                if (result.success && result.parsed) {
+                                  setSamlConfig(prev => ({
+                                    ...prev,
+                                    idpEntityId: result.parsed?.idpEntityId || '',
+                                    entryPoint: result.parsed?.entryPoint || '',
+                                    idpCert: result.parsed?.idpCert || '',
+                                    logoutUrl: result.parsed?.logoutUrl || '',
+                                  }));
+                                }
+                                setSamlTestStatus({ loading: false, success: result.success, error: result.error });
+                              } catch (err: any) {
+                                setSamlTestStatus({ loading: false, success: false, error: err.message });
+                              }
+                            }}
+                            disabled={samlTestStatus.loading || (samlConfig.metadataMode === 'url' ? !samlConfig.metadataUrl.trim() : !samlConfig.metadataXml.trim())}
+                            className="px-4 py-2 bg-gray-700 text-white rounded-lg text-sm font-medium hover:bg-gray-800 disabled:opacity-50"
+                          >
+                            {samlTestStatus.loading ? 'Testing...' : 'Test Metadata'}
+                          </button>
+
+                          <button
+                            onClick={async () => {
+                              setSamlSaveStatus({ saving: true });
+                              try {
+                                const saved = await api.saveSamlConfig(samlConfig);
+                                setSamlConfig(saved);
+                                setSamlSaveStatus({ saving: false, saved: true });
+                                const publicCfg = await api.fetchSamlPublicConfig();
+                                setSamlPublicConfig(publicCfg);
+                                setTimeout(() => setSamlSaveStatus({ saving: false }), 3000);
+                              } catch (err: any) {
+                                setSamlSaveStatus({ saving: false, error: err?.message || 'Save failed' });
+                              }
+                            }}
+                            disabled={samlSaveStatus.saving}
+                            className="px-4 py-2 bg-ots-600 text-white rounded-lg text-sm font-medium hover:bg-ots-700 disabled:opacity-50"
+                          >
+                            {samlSaveStatus.saving ? 'Saving...' : 'Save SAML Settings'}
+                          </button>
+                        </div>
+
+                        {samlTestStatus.success !== undefined && !samlTestStatus.loading && (
+                          <div className={`mt-3 p-3 rounded-lg text-sm border ${samlTestStatus.success ? 'bg-green-50 border-green-200 text-green-800' : 'bg-red-50 border-red-200 text-red-800'}`}>
+                            {samlTestStatus.success ? 'Metadata parsed successfully.' : `Metadata test failed: ${samlTestStatus.error}`}
+                          </div>
+                        )}
+                        {samlSaveStatus.saved && (
+                          <div className="mt-3 p-3 rounded-lg text-sm border bg-green-50 border-green-200 text-green-800">
+                            SAML settings saved.
+                          </div>
+                        )}
+                        {samlSaveStatus.error && (
+                          <div className="mt-3 p-3 rounded-lg text-sm border bg-red-50 border-red-200 text-red-800">
+                            Failed to save settings: {samlSaveStatus.error}
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
+                        <h3 className="text-sm font-bold text-gray-900 mb-4 uppercase tracking-wide">Service Provider Metadata (Give this to your IdP Admin)</h3>
+                        <div className="space-y-3">
+                          <div>
+                            <label className="block text-xs font-semibold text-gray-500 mb-1">Metadata URL</label>
+                            <div className="flex gap-2">
+                              <input
+                                type="text"
+                                readOnly
+                                value={samlPublicConfig.metadataUrl || api.getSamlMetadataUrl()}
+                                className="flex-1 border border-gray-300 rounded px-3 py-2 text-sm bg-card text-gray-900"
+                              />
+                              <button
+                                onClick={async () => {
+                                  const value = samlPublicConfig.metadataUrl || api.getSamlMetadataUrl();
+                                  await navigator.clipboard.writeText(value);
+                                }}
+                                className="px-3 py-2 bg-gray-200 text-gray-800 rounded text-sm hover:bg-gray-300"
+                              >
+                                Copy URL
+                              </button>
+                              <button
+                                onClick={downloadSamlMetadata}
+                                className="inline-flex items-center px-3 py-2 bg-white border border-gray-300 text-gray-700 rounded text-sm hover:bg-gray-50"
+                              >
+                                <Download size={14} className="mr-1.5" />Download XML
+                              </button>
+                            </div>
+                          </div>
+
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                            <div>
+                              <label className="block text-xs font-semibold text-gray-500 mb-1">SP Entity ID</label>
+                              <input
+                                type="text"
+                                value={samlConfig.spEntityId}
+                                onChange={e => setSamlConfig(prev => ({ ...prev, spEntityId: e.target.value }))}
+                                className="w-full border border-gray-300 rounded px-3 py-2 text-sm bg-card text-gray-900"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-xs font-semibold text-gray-500 mb-1">ACS URL</label>
+                              <input
+                                type="text"
+                                value={samlConfig.acsUrl}
+                                onChange={e => setSamlConfig(prev => ({ ...prev, acsUrl: e.target.value }))}
+                                className="w-full border border-gray-300 rounded px-3 py-2 text-sm bg-card text-gray-900"
+                              />
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
+                        <h3 className="text-sm font-bold text-gray-900 mb-4 uppercase tracking-wide">Resolved Identity Provider Values</h3>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          <div>
+                            <label className="block text-xs font-semibold text-gray-500 mb-1">IdP Entity ID</label>
+                            <input type="text" readOnly value={samlConfig.idpEntityId} className="w-full border border-gray-300 rounded px-3 py-2 text-sm bg-gray-100 text-gray-700" />
+                          </div>
+                          <div>
+                            <label className="block text-xs font-semibold text-gray-500 mb-1">SSO URL</label>
+                            <input type="text" readOnly value={samlConfig.entryPoint} className="w-full border border-gray-300 rounded px-3 py-2 text-sm bg-gray-100 text-gray-700" />
+                          </div>
+                          <div>
+                            <label className="block text-xs font-semibold text-gray-500 mb-1">Logout URL</label>
+                            <input type="text" readOnly value={samlConfig.logoutUrl} className="w-full border border-gray-300 rounded px-3 py-2 text-sm bg-gray-100 text-gray-700" />
+                          </div>
+                          <div>
+                            <label className="block text-xs font-semibold text-gray-500 mb-1">NameID Format</label>
+                            <input
+                              type="text"
+                              value={samlConfig.nameIdFormat}
+                              onChange={e => setSamlConfig(prev => ({ ...prev, nameIdFormat: e.target.value }))}
+                              className="w-full border border-gray-300 rounded px-3 py-2 text-sm bg-card text-gray-900"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-xs font-semibold text-gray-500 mb-1">Email Attribute</label>
+                            <input
+                              type="text"
+                              value={samlConfig.emailAttribute}
+                              onChange={e => setSamlConfig(prev => ({ ...prev, emailAttribute: e.target.value }))}
+                              className="w-full border border-gray-300 rounded px-3 py-2 text-sm bg-card text-gray-900"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-xs font-semibold text-gray-500 mb-1">Display Name Attribute</label>
+                            <input
+                              type="text"
+                              value={samlConfig.displayNameAttribute}
+                              onChange={e => setSamlConfig(prev => ({ ...prev, displayNameAttribute: e.target.value }))}
+                              className="w-full border border-gray-300 rounded px-3 py-2 text-sm bg-card text-gray-900"
+                            />
+                          </div>
+                        </div>
+                      </div>
                     </div>
                   )}
                 </div>

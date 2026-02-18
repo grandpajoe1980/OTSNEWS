@@ -3,11 +3,13 @@ import cors from 'cors';
 import { createHmac, timingSafeEqual } from 'crypto';
 import { getDb, saveDb } from './db';
 import { getEmailConfig, testConnection, sendTestEmail } from './email';
-import type { EmailConfig } from '../types';
+import { createSamlClient, buildDefaultSamlConfig, extractIdentity, generateSpMetadataXml, hydrateSamlConfigFromMetadata, normalizePemCertificate } from './saml';
+import type { EmailConfig, SamlConfig } from '../types';
 
 const app = express();
 app.use(cors());
 app.use(express.json({ limit: '10mb' })); // large limit for base64 cover images & attachments
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 const SESSION_COOKIE_NAME = 'ots_session';
 const SESSION_TTL_MS = 1000 * 60 * 60 * 24 * 14; // 14 days
@@ -84,6 +86,122 @@ function clearSessionCookie(res: express.Response): void {
     secure: process.env.NODE_ENV === 'production',
     path: '/',
   });
+}
+
+function getBaseUrl(req: express.Request): string {
+  const forwardedProto = req.header('x-forwarded-proto');
+  const proto = forwardedProto ? forwardedProto.split(',')[0].trim() : req.protocol;
+  const host = req.header('x-forwarded-host') || req.get('host') || '127.0.0.1:3001';
+  return `${proto}://${host}`;
+}
+
+async function getSessionUser(req: express.Request): Promise<{ id: string; name: string; email: string; role: string; avatar: string } | null> {
+  const db = await getDb();
+  const token = getCookieValue(req.headers.cookie, SESSION_COOKIE_NAME);
+  const session = verifySessionToken(token);
+  if (!session) return null;
+
+  const rows = db.exec("SELECT id, name, email, role, avatar FROM users WHERE id = ?", [session.userId]);
+  if (!rows.length || !rows[0].values.length) return null;
+  const row = rows[0].values[0];
+  return {
+    id: row[0] as string,
+    name: row[1] as string,
+    email: row[2] as string,
+    role: row[3] as string,
+    avatar: row[4] as string,
+  };
+}
+
+async function requireAdmin(req: express.Request, res: express.Response, next: express.NextFunction) {
+  const user = await getSessionUser(req);
+  if (!user) {
+    clearSessionCookie(res);
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+  if (user.role !== 'admin') {
+    return res.status(403).json({ error: 'Admin access required' });
+  }
+  next();
+}
+
+function mapRowToSamlConfig(row: any[], req: express.Request): SamlConfig {
+  const baseUrl = getBaseUrl(req);
+  const defaults = buildDefaultSamlConfig(baseUrl);
+  return {
+    providerType: ((row[0] as string) || defaults.providerType) as SamlConfig['providerType'],
+    enabled: !!(row[1] as number),
+    metadataMode: ((row[2] as string) || defaults.metadataMode) as SamlConfig['metadataMode'],
+    metadataUrl: (row[3] as string) || '',
+    metadataXml: (row[4] as string) || '',
+    idpEntityId: (row[5] as string) || '',
+    entryPoint: (row[6] as string) || '',
+    idpCert: normalizePemCertificate((row[7] as string) || ''),
+    logoutUrl: (row[8] as string) || '',
+    spEntityId: (row[9] as string) || defaults.spEntityId,
+    acsUrl: (row[10] as string) || defaults.acsUrl,
+    nameIdFormat: (row[11] as string) || defaults.nameIdFormat,
+    emailAttribute: (row[12] as string) || defaults.emailAttribute,
+    displayNameAttribute: (row[13] as string) || defaults.displayNameAttribute,
+  };
+}
+
+async function getSamlConfigForRequest(req: express.Request): Promise<SamlConfig> {
+  const db = await getDb();
+  const rows = db.exec('SELECT provider_type, enabled, metadata_mode, metadata_url, metadata_xml, idp_entity_id, entry_point, idp_cert, logout_url, sp_entity_id, acs_url, name_id_format, email_attribute, display_name_attribute FROM saml_config WHERE id = 1');
+  if (!rows.length || !rows[0].values.length) {
+    return buildDefaultSamlConfig(getBaseUrl(req));
+  }
+  return mapRowToSamlConfig(rows[0].values[0], req);
+}
+
+async function saveSamlConfig(config: SamlConfig): Promise<void> {
+  const db = await getDb();
+  const existing = db.exec('SELECT id FROM saml_config WHERE id = 1');
+  if (existing.length && existing[0].values.length) {
+    db.run(
+      'UPDATE saml_config SET provider_type=?, enabled=?, metadata_mode=?, metadata_url=?, metadata_xml=?, idp_entity_id=?, entry_point=?, idp_cert=?, logout_url=?, sp_entity_id=?, acs_url=?, name_id_format=?, email_attribute=?, display_name_attribute=?, updated_at=? WHERE id=1',
+      [
+        config.providerType,
+        config.enabled ? 1 : 0,
+        config.metadataMode,
+        config.metadataUrl,
+        config.metadataXml,
+        config.idpEntityId,
+        config.entryPoint,
+        normalizePemCertificate(config.idpCert),
+        config.logoutUrl,
+        config.spEntityId,
+        config.acsUrl,
+        config.nameIdFormat,
+        config.emailAttribute,
+        config.displayNameAttribute,
+        Date.now(),
+      ]
+    );
+  } else {
+    db.run(
+      'INSERT INTO saml_config (id, provider_type, enabled, metadata_mode, metadata_url, metadata_xml, idp_entity_id, entry_point, idp_cert, logout_url, sp_entity_id, acs_url, name_id_format, email_attribute, display_name_attribute, updated_at) VALUES (1,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+      [
+        config.providerType,
+        config.enabled ? 1 : 0,
+        config.metadataMode,
+        config.metadataUrl,
+        config.metadataXml,
+        config.idpEntityId,
+        config.entryPoint,
+        normalizePemCertificate(config.idpCert),
+        config.logoutUrl,
+        config.spEntityId,
+        config.acsUrl,
+        config.nameIdFormat,
+        config.emailAttribute,
+        config.displayNameAttribute,
+        Date.now(),
+      ]
+    );
+  }
+  saveDb();
 }
 
 // ─── USERS ───────────────────────────────────────────────
@@ -611,6 +729,150 @@ app.post('/api/email-config/test', async (req, res) => {
   }
 
   res.json({ success: true });
+});
+
+// ─── SAML CONFIG ────────────────────────────────────────
+app.get('/api/saml-config/public', async (req, res) => {
+  const config = await getSamlConfigForRequest(req);
+  const metadataUrl = `${getBaseUrl(req)}/api/auth/saml/metadata`;
+  res.json({
+    enabled: config.enabled,
+    metadataUrl,
+    spEntityId: config.spEntityId,
+    acsUrl: config.acsUrl,
+  });
+});
+
+app.get('/api/saml-config', requireAdmin, async (req, res) => {
+  const config = await getSamlConfigForRequest(req);
+  res.json(config);
+});
+
+app.put('/api/saml-config', requireAdmin, async (req, res) => {
+  try {
+    const baseDefaults = buildDefaultSamlConfig(getBaseUrl(req));
+    const incoming = req.body as SamlConfig;
+
+    const merged: SamlConfig = {
+      ...baseDefaults,
+      ...incoming,
+      metadataUrl: (incoming.metadataUrl || '').trim(),
+      metadataXml: (incoming.metadataXml || '').trim(),
+      spEntityId: (incoming.spEntityId || baseDefaults.spEntityId).trim(),
+      acsUrl: (incoming.acsUrl || baseDefaults.acsUrl).trim(),
+      nameIdFormat: (incoming.nameIdFormat || baseDefaults.nameIdFormat).trim(),
+      emailAttribute: (incoming.emailAttribute || baseDefaults.emailAttribute).trim(),
+      displayNameAttribute: (incoming.displayNameAttribute || baseDefaults.displayNameAttribute).trim(),
+    };
+
+    const hydrated = await hydrateSamlConfigFromMetadata(merged);
+    await saveSamlConfig(hydrated);
+    res.json(hydrated);
+  } catch (err: any) {
+    res.status(400).json({ error: err?.message || 'Failed to save SAML configuration' });
+  }
+});
+
+app.post('/api/saml-config/test', requireAdmin, async (req, res) => {
+  try {
+    const metadataMode = (req.body?.metadataMode || 'url') as 'url' | 'xml';
+    const baseDefaults = buildDefaultSamlConfig(getBaseUrl(req));
+    const hydrated = await hydrateSamlConfigFromMetadata({
+      ...baseDefaults,
+      metadataMode,
+      metadataUrl: req.body?.metadataUrl || '',
+      metadataXml: req.body?.metadataXml || '',
+    });
+
+    res.json({
+      success: true,
+      parsed: {
+        idpEntityId: hydrated.idpEntityId,
+        entryPoint: hydrated.entryPoint,
+        idpCert: hydrated.idpCert,
+        logoutUrl: hydrated.logoutUrl,
+      },
+    });
+  } catch (err: any) {
+    res.json({ success: false, error: err?.message || 'SAML metadata test failed' });
+  }
+});
+
+// ─── SAML AUTH ──────────────────────────────────────────
+app.get('/api/auth/saml/metadata', async (req, res) => {
+  const config = await getSamlConfigForRequest(req);
+  const xml = generateSpMetadataXml(config);
+  res.type('application/samlmetadata+xml').send(xml);
+});
+
+app.get('/api/auth/saml/login', async (req, res) => {
+  const config = await getSamlConfigForRequest(req);
+  if (!config.enabled) {
+    return res.status(403).send('SAML login is disabled');
+  }
+  if (!config.entryPoint || !config.idpCert) {
+    return res.status(400).send('SAML is not fully configured');
+  }
+
+  try {
+    const samlClient = createSamlClient(config);
+    const relayState = typeof req.query.RelayState === 'string' ? req.query.RelayState : '/';
+    const redirectUrl = await samlClient.getAuthorizeUrlAsync(relayState, undefined, {});
+    res.redirect(redirectUrl);
+  } catch (err: any) {
+    console.error('SAML login redirect error:', err);
+    res.status(500).send('Failed to start SAML login');
+  }
+});
+
+app.post('/api/auth/saml/callback', async (req, res) => {
+  const config = await getSamlConfigForRequest(req);
+  if (!config.enabled) {
+    return res.status(403).send('SAML login is disabled');
+  }
+
+  try {
+    const samlClient = createSamlClient(config);
+    const result = await samlClient.validatePostResponseAsync({
+      SAMLResponse: req.body?.SAMLResponse,
+      RelayState: req.body?.RelayState,
+    });
+
+    const profile = result.profile as Record<string, unknown> | null;
+    if (!profile) {
+      return res.status(401).send('SAML response did not contain a user profile');
+    }
+
+    const { email, displayName } = extractIdentity(profile, config);
+    if (!email) {
+      return res.status(400).send('Could not determine user email from SAML assertion');
+    }
+
+    const db = await getDb();
+    let rows = db.exec('SELECT id, name, email, role, avatar FROM users WHERE lower(email) = lower(?)', [email]);
+
+    if (!rows.length || !rows[0].values.length) {
+      const userId = `u_saml_${Date.now()}`;
+      const avatarSeed = encodeURIComponent(email.split('@')[0] || 'samluser');
+      db.run(
+        'INSERT INTO users (id, name, email, password, role, avatar) VALUES (?, ?, ?, ?, ?, ?)',
+        [userId, displayName || 'SAML User', email, 'saml-auth', 'user', `https://picsum.photos/seed/${avatarSeed}/50/50`]
+      );
+      saveDb();
+      rows = db.exec('SELECT id, name, email, role, avatar FROM users WHERE id = ?', [userId]);
+    }
+
+    const userRow = rows[0].values[0];
+    const sessionToken = createSessionToken(userRow[0] as string);
+    applySessionCookie(res, sessionToken);
+
+    const relayState = typeof req.body?.RelayState === 'string' ? req.body.RelayState : '/';
+    const safeRedirect = relayState.startsWith('/') ? relayState : '/';
+    res.redirect(safeRedirect);
+  } catch (err: any) {
+    console.error('SAML callback error:', err);
+    res.status(401).send(`SAML authentication failed: ${err?.message || 'Unknown error'}`);
+  }
 });
 
 // ─── START ───────────────────────────────────────────────

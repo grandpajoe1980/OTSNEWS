@@ -1,5 +1,5 @@
 // Frontend API client – all calls go to /api/* which Vite proxies to Express
-import { Article, Attachment, Comment, DigestPreference, Notification, Section, SectionEditor, User, UserRole } from '../types';
+import { Article, Attachment, Comment, DigestPreference, Notification, SamlConfig, SamlConfigTestResult, SamlPublicConfig, Section, SectionEditor, User, UserRole } from '../types';
 
 const BASE = '/api';
 
@@ -216,5 +216,38 @@ export async function testEmailConfig(config: any): Promise<{ success: boolean; 
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(config),
   });
+}
+
+// ─── SAML CONFIG ────────────────────────────────────────
+export async function fetchSamlConfig(): Promise<SamlConfig | null> {
+  return json<SamlConfig | null>(`${BASE}/saml-config`);
+}
+
+export async function saveSamlConfig(config: SamlConfig): Promise<SamlConfig> {
+  return json<SamlConfig>(`${BASE}/saml-config`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(config),
+  });
+}
+
+export async function testSamlConfig(config: Pick<SamlConfig, 'metadataMode' | 'metadataUrl' | 'metadataXml'>): Promise<SamlConfigTestResult> {
+  return json<SamlConfigTestResult>(`${BASE}/saml-config/test`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(config),
+  });
+}
+
+export async function fetchSamlPublicConfig(): Promise<SamlPublicConfig> {
+  return json<SamlPublicConfig>(`${BASE}/saml-config/public`, { cache: 'no-store' });
+}
+
+export function getSamlLoginUrl(): string {
+  return `${BASE}/auth/saml/login`;
+}
+
+export function getSamlMetadataUrl(): string {
+  return `${window.location.origin}${BASE}/auth/saml/metadata`;
 }
 

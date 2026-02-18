@@ -13,9 +13,11 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@node-saml/node-saml": "^5.1.0",
     "concurrently": "^9.2.1",
     "cors": "^2.8.6",
     "express": "^5.2.1",
+    "fast-xml-parser": "^5.3.6",
     "lucide-react": "^0.563.0",
     "nodemailer": "^8.0.1",
     "react": "^19.2.4",

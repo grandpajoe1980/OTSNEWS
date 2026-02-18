@@ -151,6 +151,27 @@ export async function getDb(): Promise<Database> {
     );
   `);
 
+  db.run(`
+    CREATE TABLE IF NOT EXISTS saml_config (
+      id INTEGER PRIMARY KEY CHECK (id = 1),
+      provider_type TEXT NOT NULL DEFAULT 'saml',
+      enabled INTEGER NOT NULL DEFAULT 0,
+      metadata_mode TEXT NOT NULL DEFAULT 'url',
+      metadata_url TEXT NOT NULL DEFAULT '',
+      metadata_xml TEXT NOT NULL DEFAULT '',
+      idp_entity_id TEXT NOT NULL DEFAULT '',
+      entry_point TEXT NOT NULL DEFAULT '',
+      idp_cert TEXT NOT NULL DEFAULT '',
+      logout_url TEXT NOT NULL DEFAULT '',
+      sp_entity_id TEXT NOT NULL DEFAULT '',
+      acs_url TEXT NOT NULL DEFAULT '',
+      name_id_format TEXT NOT NULL DEFAULT 'urn:oasis:names:tc:SAML:1.1:nameid-format:emailAddress',
+      email_attribute TEXT NOT NULL DEFAULT 'email',
+      display_name_attribute TEXT NOT NULL DEFAULT 'name',
+      updated_at INTEGER
+    );
+  `);
+
   // Seed data if tables are empty
   const userCount = db.exec("SELECT COUNT(*) as cnt FROM users")[0]?.values[0][0] as number;
   if (userCount === 0) {
