@@ -745,6 +745,46 @@ app.put('/api/users/:id/role', requireAuth, requireAdmin, async (req, res) => {
   res.json({ success: true });
 });
 
+app.put('/api/users/:id', requireAuth, requireAdmin, async (req, res) => {
+  const db = await getDb();
+  const currentUser = getCurrentUser(res);
+  const safeName = sanitizePlainText(String(req.body?.name || '')).slice(0, 100);
+  const normalizedEmail = sanitizePlainText(String(req.body?.email || '')).trim().toLowerCase();
+
+  if (!safeName || !normalizedEmail) {
+    return res.status(400).json({ error: 'name and email are required' });
+  }
+
+  const targetRows = db.exec('SELECT auth_source FROM users WHERE id = ?', [req.params.id]);
+  if (!targetRows.length || !targetRows[0].values.length) {
+    return res.status(404).json({ error: 'User not found' });
+  }
+
+  const targetAuthSource = (targetRows[0].values[0][0] as string) || 'local';
+  if (targetAuthSource !== 'local') {
+    return res.status(400).json({ error: 'Profile updates are only available for local accounts' });
+  }
+
+  const duplicateRows = db.exec('SELECT id FROM users WHERE lower(email) = lower(?) AND id <> ?', [normalizedEmail, req.params.id]);
+  if (duplicateRows.length && duplicateRows[0].values.length) {
+    return res.status(400).json({ error: 'Email already registered' });
+  }
+
+  db.run('UPDATE users SET name = ?, email = ? WHERE id = ?', [safeName, normalizedEmail, req.params.id]);
+  saveDb();
+  logSecurityEvent(req, 'auth.user.profile.updated', {
+    actorUserId: currentUser.id,
+    targetUserId: req.params.id,
+    targetAuthSource,
+  });
+  res.json({
+    id: req.params.id,
+    name: safeName,
+    email: normalizedEmail,
+    authSource: targetAuthSource,
+  });
+});
+
 app.put('/api/users/:id/password', requireAuth, requireSelfOrAdmin('id'), async (req, res) => {
   const db = await getDb();
   const currentUser = getCurrentUser(res);

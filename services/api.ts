@@ -101,6 +101,14 @@ export async function updateUserRole(userId: string, role: UserRole): Promise<vo
   });
 }
 
+export async function updateUserProfile(userId: string, name: string, email: string): Promise<User> {
+  return json<User>(`${BASE}/users/${userId}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name, email }),
+  });
+}
+
 export async function deleteUser(userId: string): Promise<void> {
   await json<any>(`${BASE}/users/${userId}`, { method: 'DELETE' });
 }

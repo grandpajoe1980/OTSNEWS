@@ -5,6 +5,7 @@ import { Sidebar } from './components/Sidebar';
 import { ArticleCard } from './components/ArticleCard';
 import { RichTextEditor } from './components/RichTextEditor';
 import { Menu, Search, Bell, LogOut, LogIn, Plus, ChevronLeft, Send, Hash, User as UserIcon, MessageSquare, Sun, Moon, Crown, Settings, Trash2, Shield, UserPlus, ArrowLeft, X, Reply, Paperclip, FileText, Download, Tag, Mail, Check, CheckCheck, KeyRound, Server, Wifi, WifiOff, AlertCircle, CheckCircle2 } from 'lucide-react';
+import otsLogoMark from './OTS-Logo-Mark-Normal-Color@3x-100.jpg';
 
 type ViewMode = 'feed' | 'section' | 'article' | 'editor' | 'admin' | 'digest';
 
@@ -124,6 +125,8 @@ export default function App() {
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const [resetPasswordUserId, setResetPasswordUserId] = useState<string | null>(null);
   const [resetPasswordValue, setResetPasswordValue] = useState('');
+  const [editingUsers, setEditingUsers] = useState<Record<string, { name: string; email: string }>>({});
+  const [savingUserProfileId, setSavingUserProfileId] = useState<string | null>(null);
   const [commentError, setCommentError] = useState('');
 
   // --- Theme Effect ---
@@ -516,6 +519,46 @@ export default function App() {
     }
   };
 
+  const updateEditingUserField = (userId: string, field: 'name' | 'email', value: string) => {
+    const user = users.find(u => u.id === userId);
+    if (!user) return;
+    setEditingUsers(prev => ({
+      ...prev,
+      [userId]: {
+        name: prev[userId]?.name ?? user.name,
+        email: prev[userId]?.email ?? user.email,
+        [field]: value,
+      },
+    }));
+  };
+
+  const handleSaveUserProfile = async (userId: string) => {
+    const user = users.find(u => u.id === userId);
+    if (!user || user.authSource === 'saml') return;
+
+    const draftName = (editingUsers[userId]?.name ?? user.name).trim();
+    const draftEmail = (editingUsers[userId]?.email ?? user.email).trim().toLowerCase();
+    if (!draftName || !draftEmail) return;
+
+    if (draftName === user.name && draftEmail === user.email.toLowerCase()) {
+      return;
+    }
+
+    try {
+      setSavingUserProfileId(userId);
+      const updated = await api.updateUserProfile(userId, draftName, draftEmail);
+      setUsers(prev => prev.map(u => u.id === userId ? { ...u, name: updated.name, email: updated.email } : u));
+      setEditingUsers(prev => ({
+        ...prev,
+        [userId]: { name: updated.name, email: updated.email },
+      }));
+    } catch (err: any) {
+      alert(err?.message || 'Failed to update user profile');
+    } finally {
+      setSavingUserProfileId(null);
+    }
+  };
+
   const addSection = async () => {
     if (!newSectionTitle.trim()) return;
     const id = newSectionTitle.toLowerCase().replace(/\s+/g, '-');
@@ -636,9 +679,11 @@ export default function App() {
     return (
       <div className="min-h-screen bg-gray-100 flex items-center justify-center">
         <div className="text-center">
-          <div className="h-16 w-16 bg-ots-600 rounded-xl flex items-center justify-center mb-4 shadow-lg rotate-3 mx-auto animate-pulse">
-            <span className="text-white font-bold text-2xl tracking-tighter">OTS</span>
-          </div>
+          <img
+            src={otsLogoMark}
+            alt="OTS logo"
+            className="h-16 w-16 rounded-xl mb-4 shadow-lg mx-auto animate-pulse object-cover"
+          />
           <p className="text-gray-500 text-sm">Loading from database…</p>
         </div>
       </div>
@@ -656,9 +701,11 @@ export default function App() {
           <X size={20} />
         </button>
         <div className="flex flex-col items-center mb-8">
-          <div className="h-16 w-16 bg-ots-600 rounded-xl flex items-center justify-center mb-4 shadow-lg rotate-3">
-            <span className="text-white font-bold text-2xl tracking-tighter">OTS</span>
-          </div>
+          <img
+            src={otsLogoMark}
+            alt="OTS logo"
+            className="h-16 w-16 rounded-xl mb-4 shadow-lg object-cover"
+          />
           <h1 className="text-2xl font-bold text-gray-900">Sign In</h1>
           <p className="text-gray-500 text-sm mt-2 text-center">Log in to comment, edit, and more</p>
         </div>
@@ -788,9 +835,11 @@ export default function App() {
             <Menu size={20} />
           </button>
           <div onClick={navigateToFeed} className="flex items-center cursor-pointer">
-            <div className="h-8 w-8 bg-ots-600 rounded-lg flex items-center justify-center mr-2 shadow-sm transition-colors duration-300">
-              <span className="text-white font-bold text-xs tracking-tighter">OTS</span>
-            </div>
+            <img
+              src={otsLogoMark}
+              alt="OTS logo"
+              className="h-8 w-8 rounded-lg mr-2 shadow-sm transition-colors duration-300 object-cover"
+            />
             <span className="text-lg font-bold text-gray-900 tracking-tight hidden sm:block ml-2">OTS NEWS</span>
           </div>
         </div>
@@ -1520,6 +1569,7 @@ export default function App() {
                                     <img className="h-10 w-10 rounded-full mr-3" src={user.avatar} alt="" />
                                     <div>
                                       <div className="text-sm font-medium text-gray-900">{user.name}</div>
+                                      <div className="text-sm text-gray-500">{user.email}</div>
                                       <div className="text-sm text-gray-500">ID: {user.id}</div>
                                     </div>
                                   </div>
@@ -1534,7 +1584,7 @@ export default function App() {
                                   </span>
                                 </td>
                                 <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                                  <div className="flex items-center space-x-2">
+                                  <div className="flex flex-wrap items-center gap-2">
                                     <select
                                       value={user.role}
                                       onChange={(e) => handleRoleChange(user.id, e.target.value as UserRole)}
@@ -1560,6 +1610,41 @@ export default function App() {
                                     >
                                       <KeyRound size={16} />
                                     </button>
+                                    {user.authSource !== 'saml' ? (
+                                      <>
+                                        <input
+                                          type="text"
+                                          value={editingUsers[user.id]?.name ?? user.name}
+                                          onChange={(e) => updateEditingUserField(user.id, 'name', e.target.value)}
+                                          placeholder="User Name"
+                                          className="border border-gray-300 rounded px-2 py-1 text-sm bg-card text-gray-900"
+                                        />
+                                        <input
+                                          type="email"
+                                          value={editingUsers[user.id]?.email ?? user.email}
+                                          onChange={(e) => updateEditingUserField(user.id, 'email', e.target.value)}
+                                          placeholder="User Email"
+                                          className="border border-gray-300 rounded px-2 py-1 text-sm bg-card text-gray-900 min-w-[220px]"
+                                        />
+                                        <button
+                                          onClick={() => handleSaveUserProfile(user.id)}
+                                          disabled={
+                                            savingUserProfileId === user.id
+                                            || !(editingUsers[user.id]?.name ?? user.name).trim()
+                                            || !(editingUsers[user.id]?.email ?? user.email).trim()
+                                            || (
+                                              (editingUsers[user.id]?.name ?? user.name).trim() === user.name
+                                              && (editingUsers[user.id]?.email ?? user.email).trim().toLowerCase() === user.email.toLowerCase()
+                                            )
+                                          }
+                                          className="px-3 py-1 rounded bg-ots-600 text-white text-xs font-medium hover:bg-ots-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                                        >
+                                          {savingUserProfileId === user.id ? 'Saving...' : 'Save'}
+                                        </button>
+                                      </>
+                                    ) : (
+                                      <span className="text-xs text-gray-400">SAML account</span>
+                                    )}
                                   </div>
                                 </td>
                               </tr>
