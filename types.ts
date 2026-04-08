@@ -132,3 +132,33 @@ export interface SamlConfigTestResult {
     logoutUrl: string;
   };
 }
+
+export type LegisSourceType = 'official' | 'news' | 'forum' | 'other';
+
+export interface LegisItem {
+  id: string;
+  billId?: string;
+  title: string;
+  url: string;
+  source: string;
+  sourceType: LegisSourceType;
+  status?: string;
+  excerpt?: string;
+  publishedAt?: number;
+  fetchedAt: number;
+  tags: string[];
+}
+
+export interface LegisRun {
+  id: string;
+  startedAt: number;
+  finishedAt?: number;
+  status: 'running' | 'success' | 'failed';
+  error?: string;
+  itemsAdded: number;
+}
+
+export interface LegisDigest {
+  items: LegisItem[];
+  lastRun: LegisRun | null;
+}

@@ -153,6 +153,60 @@ export async function getDb(): Promise<Database> {
   `);
 
   db.run(`
+    CREATE TABLE IF NOT EXISTS legis_sources (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      url TEXT NOT NULL,
+      type TEXT NOT NULL,
+      enabled INTEGER NOT NULL DEFAULT 1,
+      created_at INTEGER,
+      updated_at INTEGER
+    );
+  `);
+
+  db.run(`
+    CREATE TABLE IF NOT EXISTS legis_items (
+      id TEXT PRIMARY KEY,
+      bill_id TEXT,
+      title TEXT NOT NULL,
+      url TEXT NOT NULL,
+      source TEXT NOT NULL,
+      source_type TEXT NOT NULL,
+      status TEXT,
+      excerpt TEXT,
+      published_at INTEGER,
+      fetched_at INTEGER NOT NULL,
+      tags TEXT
+    );
+  `);
+
+  db.run('CREATE UNIQUE INDEX IF NOT EXISTS idx_legis_items_url ON legis_items(url)');
+
+  db.run(`
+    CREATE TABLE IF NOT EXISTS legis_runs (
+      id TEXT PRIMARY KEY,
+      started_at INTEGER NOT NULL,
+      finished_at INTEGER,
+      status TEXT NOT NULL,
+      error TEXT,
+      items_added INTEGER NOT NULL DEFAULT 0
+    );
+  `);
+
+  ensureColumn(db, 'legis_sources', 'enabled', 'INTEGER NOT NULL DEFAULT 1');
+  ensureColumn(db, 'legis_sources', 'created_at', 'INTEGER');
+  ensureColumn(db, 'legis_sources', 'updated_at', 'INTEGER');
+  ensureColumn(db, 'legis_items', 'bill_id', 'TEXT');
+  ensureColumn(db, 'legis_items', 'status', 'TEXT');
+  ensureColumn(db, 'legis_items', 'excerpt', 'TEXT');
+  ensureColumn(db, 'legis_items', 'published_at', 'INTEGER');
+  ensureColumn(db, 'legis_items', 'fetched_at', 'INTEGER');
+  ensureColumn(db, 'legis_items', 'tags', 'TEXT');
+  ensureColumn(db, 'legis_runs', 'finished_at', 'INTEGER');
+  ensureColumn(db, 'legis_runs', 'error', 'TEXT');
+  ensureColumn(db, 'legis_runs', 'items_added', 'INTEGER NOT NULL DEFAULT 0');
+
+  db.run(`
     CREATE TABLE IF NOT EXISTS email_config (
       id INTEGER PRIMARY KEY CHECK (id = 1),
       provider TEXT NOT NULL DEFAULT 'custom',
@@ -194,6 +248,8 @@ export async function getDb(): Promise<Database> {
   if (userCount === 0) {
     seedData(db);
   }
+
+  seedLegisSources(db);
 
   saveDb();
   return db;
@@ -309,6 +365,49 @@ function seedData(db: Database) {
     "INSERT INTO notifications (id, user_id, type, message, article_id, timestamp, read) VALUES (?,?,?,?,?,?,?)",
     ['n1', 'u3', 'new_article', 'Alice Admin published "SWE Migration Project Kickoff"', 'a4', now - 400000, 0]
   );
+}
+
+function seedLegisSources(db: Database) {
+  const now = Date.now();
+  const sources = [
+    { id: 'legis-la-home', name: 'LA Legislature Home', url: 'https://legis.la.gov/', type: 'official', enabled: 1 },
+    { id: 'legis-la-billinfo', name: 'LA Legislature Bill Info', url: 'https://legis.la.gov/legis/BillInfo.aspx', type: 'official', enabled: 1 },
+    { id: 'legis-la-search', name: 'LA Legislature Bill Search', url: 'https://legis.la.gov/legis/BillSearchList.aspx', type: 'official', enabled: 1 },
+    { id: 'la-illuminator', name: 'Louisiana Illuminator', url: 'https://lailluminator.com/feed/', type: 'news', enabled: 1 },
+    { id: 'pelican-policy', name: 'Pelican Policy', url: 'https://pelicanpolicy.org/feed/', type: 'news', enabled: 1 },
+    { id: 'legiscan-la', name: 'LegiScan Louisiana', url: 'https://legiscan.com/LA', type: 'news', enabled: 0 },
+    { id: 'nola-com', name: 'NOLA.com Politics', url: 'https://www.nola.com/news/politics/', type: 'news', enabled: 0 },
+    { id: 'reddit-louisiana', name: 'Reddit /r/Louisiana', url: 'https://www.reddit.com/r/louisiana/', type: 'forum', enabled: 0 },
+    { id: 'reddit-neworleans', name: 'Reddit /r/NewOrleans', url: 'https://www.reddit.com/r/NewOrleans/', type: 'forum', enabled: 0 },
+    // Bing News RSS proxies — tech/OTS-focused queries
+    { id: 'bing-nola', name: 'NOLA.com Tech (via Bing)', url: 'https://www.bing.com/news/search?q=site%3Anola.com+louisiana+technology+OR+cybersecurity+OR+broadband+OR+%22office+of+technology%22&format=rss', type: 'news', enabled: 1 },
+    { id: 'bing-advocate', name: 'Advocate Tech (via Bing)', url: 'https://www.bing.com/news/search?q=site%3Atheadvocate.com+louisiana+technology+OR+cybersecurity+OR+digital+OR+AI&format=rss', type: 'news', enabled: 1 },
+    { id: 'bing-reddit', name: 'Reddit LA Tech (via Bing)', url: 'https://www.bing.com/news/search?q=site%3Areddit.com%2Fr%2Flouisiana+technology+OR+cybersecurity+OR+broadband+OR+%22state+IT%22&format=rss', type: 'forum', enabled: 1 },
+    { id: 'bing-la-bills', name: 'LA Tech Bills (via Bing)', url: 'https://www.bing.com/news/search?q=louisiana+legislation+technology+OR+cybersecurity+OR+AI+OR+%22office+of+technology+services%22+OR+broadband&format=rss', type: 'news', enabled: 1 },
+    { id: 'bing-la-ots', name: 'LA OTS News (via Bing)', url: 'https://www.bing.com/news/search?q=louisiana+%22office+of+technology+services%22+OR+%22OTS%22+OR+%22state+CIO%22+OR+%22digital+services%22&format=rss', type: 'news', enabled: 1 },
+  ];
+
+  const existingRows = db.exec('SELECT id FROM legis_sources');
+  const existingIds = new Set((existingRows[0]?.values || []).map(row => row[0] as string));
+
+  for (const source of sources) {
+    if (existingIds.has(source.id)) {
+      db.run('UPDATE legis_sources SET name = ?, url = ?, type = ?, enabled = ?, updated_at = ? WHERE id = ?', [
+        source.name,
+        source.url,
+        source.type,
+        source.enabled,
+        now,
+        source.id,
+      ]);
+      continue;
+    }
+
+    db.run(
+      'INSERT INTO legis_sources (id, name, url, type, enabled, created_at, updated_at) VALUES (?,?,?,?,?,?,?)',
+      [source.id, source.name, source.url, source.type, source.enabled, now, now]
+    );
+  }
 }
 
 function ensureColumn(db: Database, tableName: string, columnName: string, definition: string) {

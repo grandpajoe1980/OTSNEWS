@@ -7,10 +7,12 @@ interface SidebarProps {
   currentSection: string | undefined;
   currentSubsection: string | undefined;
   onNavigate: (sectionId?: string, subsectionId?: string) => void;
+  onNavigateLegis: () => void;
+  isLegisActive: boolean;
   isOpen: boolean;
 }
 
-export const Sidebar: React.FC<SidebarProps> = ({ sections, currentSection, currentSubsection, onNavigate, isOpen }) => {
+export const Sidebar: React.FC<SidebarProps> = ({ sections, currentSection, currentSubsection, onNavigate, onNavigateLegis, isLegisActive, isOpen }) => {
   const [expandedSections, setExpandedSections] = React.useState<Record<string, boolean>>({
     'euc': true,
   });
@@ -38,6 +40,16 @@ export const Sidebar: React.FC<SidebarProps> = ({ sections, currentSection, curr
           >
             <LayoutGrid size={18} className="mr-3" />
             Feed
+          </button>
+
+          <button
+            onClick={onNavigateLegis}
+            className={`w-full flex items-center px-3 py-2 text-sm font-medium rounded-md transition-colors ${
+              isLegisActive ? 'bg-ots-50 text-ots-600' : 'text-gray-700 hover:bg-gray-100'
+            }`}
+          >
+            <FileText size={18} className="mr-3" />
+            Legislation
           </button>
 
           {sections.map((section) => (

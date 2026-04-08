@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
-import { User, Article, UserRole, Comment, Theme, Section, SectionEditor, Notification, DigestPreference, Attachment, EmailConfig, EmailProvider, SamlConfig, SamlPublicConfig } from './types';
+import { User, Article, UserRole, Comment, Theme, Section, SectionEditor, Notification, DigestPreference, Attachment, EmailConfig, EmailProvider, SamlConfig, SamlPublicConfig, LegisDigest, LegisItem } from './types';
 import * as api from './services/api';
 import { Sidebar } from './components/Sidebar';
 import { ArticleCard } from './components/ArticleCard';
@@ -8,7 +8,7 @@ import Profile from './components/Profile';
 import { Menu, Search, Bell, LogOut, LogIn, Plus, ChevronLeft, Send, Hash, User as UserIcon, MessageSquare, Sun, Moon, Crown, Settings, Trash2, Shield, UserPlus, ArrowLeft, X, Reply, Paperclip, FileText, Download, Tag, Mail, Check, CheckCheck, KeyRound, Server, Wifi, WifiOff, AlertCircle, CheckCircle2 } from 'lucide-react';
 import otsLogoMark from './OTS-Logo-Mark-Normal-Color@3x-100.jpg';
 
-type ViewMode = 'feed' | 'section' | 'article' | 'editor' | 'admin' | 'digest' | 'profile';
+type ViewMode = 'feed' | 'section' | 'article' | 'editor' | 'admin' | 'digest' | 'profile' | 'legis';
 
 export default function App() {
   // --- Global State ---
@@ -29,6 +29,11 @@ export default function App() {
 
   // --- Digest State ---
   const [digestPref, setDigestPref] = useState<DigestPreference>({ userId: '', enabled: false, frequency: 'weekly' });
+
+  // --- Legis State ---
+  const [legisDigest, setLegisDigest] = useState<LegisDigest>({ items: [], lastRun: null });
+  const [legisLoading, setLegisLoading] = useState(false);
+  const [legisError, setLegisError] = useState<string | null>(null);
 
   // --- Tag Filter State ---
   const [activeTag, setActiveTag] = useState<string | undefined>(undefined);
@@ -136,6 +141,25 @@ export default function App() {
   }, [theme]);
 
   useEffect(() => {
+    const applyRoute = () => {
+      if (window.location.pathname === '/legis') {
+        setView('legis');
+        return;
+      }
+
+      if (view === 'legis') {
+        setActiveSectionId(undefined);
+        setActiveSubsectionId(undefined);
+        setView('feed');
+      }
+    };
+
+    applyRoute();
+    window.addEventListener('popstate', applyRoute);
+    return () => window.removeEventListener('popstate', applyRoute);
+  }, [view]);
+
+  useEffect(() => {
     if (!showLoginModal) return;
 
     const onKeyDown = (e: KeyboardEvent) => {
@@ -183,6 +207,25 @@ export default function App() {
   useEffect(() => {
     refreshData();
   }, [refreshData]);
+
+  const loadLegisDigest = useCallback(async () => {
+    setLegisLoading(true);
+    setLegisError(null);
+    try {
+      const digest = await api.fetchLegisDigest();
+      setLegisDigest(digest);
+    } catch (err: any) {
+      setLegisError(String(err?.message || 'Failed to load legislative tracker data'));
+    } finally {
+      setLegisLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (view === 'legis') {
+      loadLegisDigest();
+    }
+  }, [view, loadLegisDigest]);
 
   const restoreSession = useCallback(async () => {
     try {
@@ -284,6 +327,39 @@ export default function App() {
     articles.find(a => a.id === activeArticleId),
     [articles, activeArticleId]);
 
+  const billGroups = useMemo(() => {
+    const map = new Map<string, { billId: string; items: LegisItem[]; otsImpact: 'direct' | 'indirect' | null }>();
+    for (const item of legisDigest.items) {
+      if (!item.billId) continue;
+      if (!map.has(item.billId)) {
+        const impact = item.tags?.includes('ots-direct') ? 'direct' as const
+          : item.tags?.includes('ots-indirect') ? 'indirect' as const : null;
+        map.set(item.billId, { billId: item.billId, items: [], otsImpact: impact });
+      }
+      const group = map.get(item.billId)!;
+      group.items.push(item);
+      // Escalate impact level if any item has higher
+      if (!group.otsImpact && item.tags?.includes('ots-indirect')) group.otsImpact = 'indirect';
+      if (item.tags?.includes('ots-direct')) group.otsImpact = 'direct';
+    }
+
+    // Sort: direct OTS impact first, then indirect, then by time
+    return Array.from(map.values()).sort((a, b) => {
+      const impactOrder = { direct: 0, indirect: 1, null: 2 };
+      const aImpact = impactOrder[a.otsImpact ?? 'null'] ?? 2;
+      const bImpact = impactOrder[b.otsImpact ?? 'null'] ?? 2;
+      if (aImpact !== bImpact) return aImpact - bImpact;
+      const aTime = a.items[0]?.fetchedAt || 0;
+      const bTime = b.items[0]?.fetchedAt || 0;
+      return bTime - aTime;
+    });
+  }, [legisDigest.items]);
+
+  const otherMentions = useMemo(() =>
+    legisDigest.items.filter(item => !item.billId),
+    [legisDigest.items]
+  );
+
   // --- Actions ---
   const handleLogin = async () => {
     if (!loginEmail.trim() || !loginPassword.trim()) return;
@@ -339,12 +415,14 @@ export default function App() {
     setView('feed');
     setActiveSectionId(undefined);
     setActiveSubsectionId(undefined);
+    window.history.pushState({}, '', '/');
   };
 
   const navigateToFeed = () => {
     setActiveSectionId(undefined);
     setActiveSubsectionId(undefined);
     setView('feed');
+    window.history.pushState({}, '', '/');
   };
 
   const navigateToSection = (sectionId?: string, subsectionId?: string) => {
@@ -355,6 +433,15 @@ export default function App() {
     setActiveSectionId(sectionId);
     setActiveSubsectionId(subsectionId);
     setView('section');
+    window.history.pushState({}, '', '/');
+  };
+
+  const navigateToLegis = () => {
+    setActiveSectionId(undefined);
+    setActiveSubsectionId(undefined);
+    setActiveArticleId(undefined);
+    setView('legis');
+    window.history.pushState({}, '', '/legis');
   };
 
   const navigateToArticle = (articleId: string) => {
@@ -1030,10 +1117,242 @@ export default function App() {
           currentSection={activeSectionId}
           currentSubsection={activeSubsectionId}
           onNavigate={navigateToSection}
+          onNavigateLegis={navigateToLegis}
+          isLegisActive={view === 'legis'}
         />
 
         {/* Main Content */}
         <main className="flex-1 overflow-y-auto p-4 md:p-8">
+
+          {/* View: OTS Legislative Intelligence */}
+          {view === 'legis' && (
+            <div className="max-w-6xl mx-auto space-y-6">
+              <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+                <div>
+                  <h1 className="text-2xl font-bold text-gray-900">OTS Legislative Intelligence</h1>
+                  <p className="text-sm text-gray-500 mt-1">
+                    Technology &amp; cybersecurity bills impacting the Office of Technology Services — with public commentary.
+                  </p>
+                  <div className="mt-2 text-xs text-gray-500">
+                    Sources: <a className="text-ots-600 hover:text-ots-700" href="https://legis.la.gov/" target="_blank" rel="noreferrer">legis.la.gov</a> + news + community
+                  </div>
+                </div>
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={async () => {
+                      setLegisLoading(true);
+                      setLegisError(null);
+                      try {
+                        const result = await api.runLegisIngest();
+                        await loadLegisDigest();
+                        if (result.status !== 'success') {
+                          setLegisError(result.error || 'Ingest failed');
+                        }
+                      } catch (err: any) {
+                        setLegisError(String(err?.message || 'Ingest failed'));
+                      } finally {
+                        setLegisLoading(false);
+                      }
+                    }}
+                    className="px-3 py-2 bg-ots-600 text-white rounded-lg text-sm font-medium hover:bg-ots-700 transition-colors"
+                  >
+                    Refresh + Ingest
+                  </button>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                <div className="bg-card rounded-xl border border-gray-200 p-4">
+                  <div className="text-xs text-gray-500 uppercase tracking-wide">Last ingest</div>
+                  <div className="text-sm font-semibold text-gray-900 mt-1">
+                    {legisDigest.lastRun?.finishedAt
+                      ? new Date(legisDigest.lastRun.finishedAt).toLocaleString()
+                      : 'No runs yet'}
+                  </div>
+                  {legisDigest.lastRun?.status && (
+                    <div className={`mt-1 text-xs ${legisDigest.lastRun.status === 'failed' ? 'text-red-600' : 'text-green-700'}`}>
+                      {legisDigest.lastRun.status.toUpperCase()} ({legisDigest.lastRun.itemsAdded} new)
+                    </div>
+                  )}
+                  {legisDigest.lastRun?.error && (
+                    <div className="mt-2 text-xs text-red-600">{legisDigest.lastRun.error}</div>
+                  )}
+                </div>
+                <div className="bg-card rounded-xl border border-gray-200 p-4">
+                  <div className="text-xs text-gray-500 uppercase tracking-wide">Tech bills tracked</div>
+                  <div className="text-2xl font-bold text-gray-900 mt-1">{billGroups.length}</div>
+                  <div className="text-xs text-gray-500 mt-2">Bills related to technology &amp; OTS</div>
+                </div>
+                <div className="bg-card rounded-xl border border-gray-200 p-4">
+                  <div className="text-xs text-red-600 uppercase tracking-wide font-semibold">Direct OTS impact</div>
+                  <div className="text-2xl font-bold text-red-700 mt-1">{billGroups.filter(g => g.otsImpact === 'direct').length}</div>
+                  <div className="text-xs text-gray-500 mt-2">Bills directly affecting OTS operations</div>
+                </div>
+                <div className="bg-card rounded-xl border border-gray-200 p-4">
+                  <div className="text-xs text-gray-500 uppercase tracking-wide">Commentary items</div>
+                  <div className="text-2xl font-bold text-gray-900 mt-1">
+                    {legisDigest.items.filter(i => i.sourceType !== 'official').length}
+                  </div>
+                  <div className="text-xs text-gray-500 mt-2">News &amp; community discussion</div>
+                </div>
+              </div>
+
+              {legisLoading && (
+                <div className="bg-card rounded-xl border border-gray-200 p-6 text-sm text-gray-500">
+                  Loading legislative tracker data...
+                </div>
+              )}
+
+              {legisError && (
+                <div className="bg-red-50 border border-red-200 text-red-700 rounded-xl p-4 text-sm">
+                  {legisError}
+                </div>
+              )}
+
+              {!legisLoading && !legisError && billGroups.length === 0 && (
+                <div className="bg-card rounded-xl border border-gray-200 p-6 text-sm text-gray-500">
+                  No legislative links have been ingested yet.
+                </div>
+              )}
+
+              <div className="space-y-4">
+                {billGroups.map(group => {
+                  const officialItems = group.items.filter(item => item.sourceType === 'official');
+                  const mentionItems = group.items.filter(item => item.sourceType !== 'official');
+                  // Use the first official item for bill title/status display
+                  const primaryOfficial = officialItems.find(i => i.excerpt && i.excerpt.includes('|')) || officialItems[0];
+                  const excerptParts = primaryOfficial?.excerpt?.split(' | ') || [];
+
+                  return (
+                    <div key={group.billId} className={`bg-card rounded-xl border p-5 ${
+                      group.otsImpact === 'direct' ? 'border-red-300 bg-red-50/30' :
+                      group.otsImpact === 'indirect' ? 'border-yellow-300 bg-yellow-50/20' :
+                      'border-gray-200'
+                    }`}>
+                      <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-3">
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <h3 className="text-lg font-bold text-gray-900">{group.billId}</h3>
+                            {group.otsImpact === 'direct' && (
+                              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-red-100 text-red-800">
+                                OTS Direct Impact
+                              </span>
+                            )}
+                            {group.otsImpact === 'indirect' && (
+                              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-yellow-100 text-yellow-800">
+                                OTS Indirect Impact
+                              </span>
+                            )}
+                          </div>
+                          {/* Bill description from official scrape */}
+                          {excerptParts.length > 0 && (
+                            <div className="mt-2 space-y-1">
+                              {excerptParts[0] && !excerptParts[0].startsWith(group.billId) && (
+                                <p className="text-sm text-gray-700">{excerptParts[0]}</p>
+                              )}
+                              {excerptParts[1] && (
+                                <p className="text-xs text-gray-500"><span className="font-medium">Status:</span> {excerptParts[1]}</p>
+                              )}
+                              {excerptParts[2] && (
+                                <p className="text-xs text-gray-500">{excerptParts[2]}</p>
+                              )}
+                            </div>
+                          )}
+                          <div className="text-xs text-gray-500 mt-2">
+                            {group.items.length} references • {officialItems.length} official • {mentionItems.length} commentary
+                          </div>
+                        </div>
+                        {primaryOfficial && (
+                          <a href={primaryOfficial.url} target="_blank" rel="noreferrer"
+                            className="text-xs px-2 py-1 bg-ots-100 text-ots-700 rounded hover:bg-ots-200 transition-colors whitespace-nowrap">
+                            View on legis.la.gov →
+                          </a>
+                        )}
+                      </div>
+
+                      {/* Commentary & Discussion Section */}
+                      <div className="mt-4">
+                        <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
+                          What people are saying ({mentionItems.length})
+                        </div>
+                        {mentionItems.length === 0 ? (
+                          <div className="text-xs text-gray-400 italic">No news or community commentary ingested for this bill yet.</div>
+                        ) : (
+                          <div className="space-y-2">
+                            {mentionItems.map(item => (
+                              <div key={item.id} className="border border-gray-100 rounded-lg p-3">
+                                <div className="flex items-start gap-3">
+                                  <div className={`mt-1 w-2 h-2 rounded-full flex-shrink-0 ${
+                                    item.sourceType === 'news' ? 'bg-blue-400' :
+                                    item.sourceType === 'forum' ? 'bg-green-400' : 'bg-gray-400'
+                                  }`} />
+                                  <div className="flex-1 min-w-0">
+                                    <a href={item.url} target="_blank" rel="noreferrer" className="text-sm font-semibold text-gray-800 hover:text-ots-700">
+                                      {item.title}
+                                    </a>
+                                    {item.excerpt && item.excerpt !== item.title && (
+                                      <p className="text-xs text-gray-600 mt-1 line-clamp-3">{item.excerpt}</p>
+                                    )}
+                                    <div className="text-xs text-gray-400 mt-1 flex items-center gap-2">
+                                      <span className="font-medium">{item.source}</span>
+                                      <span>•</span>
+                                      <span className={`px-1.5 py-0.5 rounded ${
+                                        item.sourceType === 'news' ? 'bg-blue-50 text-blue-600' :
+                                        item.sourceType === 'forum' ? 'bg-green-50 text-green-600' :
+                                        'bg-gray-50 text-gray-600'
+                                      }`}>{item.sourceType}</span>
+                                      <span>•</span>
+                                      <span>{item.publishedAt ? new Date(item.publishedAt).toLocaleDateString() : new Date(item.fetchedAt).toLocaleDateString()}</span>
+                                    </div>
+                                  </div>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+
+                {otherMentions.length > 0 && (
+                  <div className="bg-card rounded-xl border border-gray-200 p-5">
+                    <div className="flex items-center justify-between">
+                      <h3 className="text-lg font-bold text-gray-900">Other tech &amp; OTS mentions</h3>
+                      <span className="text-xs text-gray-500">{otherMentions.length} items</span>
+                    </div>
+                    <p className="text-xs text-gray-500 mt-1">Technology-related coverage not tied to a specific bill number</p>
+                    <div className="mt-4 space-y-2">
+                      {otherMentions.map(item => (
+                        <div key={item.id} className="border border-gray-100 rounded-lg p-3">
+                          <div className="flex items-start gap-3">
+                            <div className={`mt-1 w-2 h-2 rounded-full flex-shrink-0 ${
+                              item.sourceType === 'news' ? 'bg-blue-400' :
+                              item.sourceType === 'forum' ? 'bg-green-400' : 'bg-gray-400'
+                            }`} />
+                            <div className="flex-1 min-w-0">
+                              <a href={item.url} target="_blank" rel="noreferrer" className="text-sm font-semibold text-gray-800 hover:text-ots-700">
+                                {item.title}
+                              </a>
+                              {item.excerpt && item.excerpt !== item.title && (
+                                <p className="text-xs text-gray-600 mt-1 line-clamp-2">{item.excerpt}</p>
+                              )}
+                              <div className="text-xs text-gray-400 mt-1">
+                                <span className="font-medium">{item.source}</span> • {item.sourceType} • {item.publishedAt ? new Date(item.publishedAt).toLocaleDateString() : new Date(item.fetchedAt).toLocaleDateString()}
+                                {item.tags?.includes('ots-direct') && (
+                                  <span className="ml-2 px-1.5 py-0.5 rounded bg-red-50 text-red-600 text-xs">OTS impact</span>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
 
           {/* View: Feed or Section */}
           {(view === 'feed' || view === 'section') && (

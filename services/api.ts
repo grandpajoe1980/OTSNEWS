@@ -1,5 +1,5 @@
 // Frontend API client – all calls go to /api/* which Vite proxies to Express
-import { Article, Attachment, Comment, DigestPreference, Notification, SamlConfig, SamlConfigTestResult, SamlPublicConfig, Section, SectionEditor, User, UserRole } from '../types';
+import { Article, Attachment, Comment, DigestPreference, LegisDigest, Notification, SamlConfig, SamlConfigTestResult, SamlPublicConfig, Section, SectionEditor, User, UserRole } from '../types';
 
 const BASE = '/api';
 
@@ -198,6 +198,17 @@ export async function addAttachment(articleId: string, attachment: Attachment): 
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(attachment),
+  });
+}
+
+// ─── LEGIS TRACKER ─────────────────────────────────────
+export async function fetchLegisDigest(): Promise<LegisDigest> {
+  return json<LegisDigest>(`${BASE}/legis`);
+}
+
+export async function runLegisIngest(): Promise<{ runId: string; status: string; itemsAdded: number; trigger: string; error?: string }> {
+  return json<{ runId: string; status: string; itemsAdded: number; trigger: string; error?: string }>(`${BASE}/legis/refresh`, {
+    method: 'POST',
   });
 }
 

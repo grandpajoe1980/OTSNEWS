@@ -6,6 +6,7 @@ import sanitizeHtml from 'sanitize-html';
 import { createHmac, randomBytes, randomUUID, scryptSync, timingSafeEqual } from 'crypto';
 import { getDb, saveDb } from './db';
 import { encryptSecretForStorage, getEmailConfig, testConnection, sendTestEmail } from './email';
+import { fetchLegisDigest, runLegisIngestion, startLegisScheduler } from './legis';
 import { createSamlClient, buildDefaultSamlConfig, extractIdentity, generateSpMetadataXml, hydrateSamlConfigFromMetadata, normalizePemCertificate } from './saml';
 import type { EmailConfig, SamlConfig } from '../types';
 
@@ -1258,6 +1259,17 @@ app.put('/api/digest/:userId', requireAuth, requireSelfOrAdmin('userId'), async 
   res.json({ userId: req.params.userId, enabled, frequency });
 });
 
+// ─── LEGIS TRACKER ─────────────────────────────────────
+app.get('/api/legis', async (_req, res) => {
+  const digest = await fetchLegisDigest();
+  res.json(digest);
+});
+
+app.post('/api/legis/refresh', requireAuth, requireAdmin, async (_req, res) => {
+  const result = await runLegisIngestion('manual');
+  res.json(result);
+});
+
 // ─── SECTION EDITORS ─────────────────────────────────────
 app.get('/api/section-editors', requireAuth, async (req, res) => {
   const db = await getDb();
@@ -1520,6 +1532,8 @@ async function start() {
   await getDb();
   await migrateLegacyPasswords();
   console.log('📦 SQLite database initialized');
+
+  startLegisScheduler();
 
   const server = app.listen(PORT, '127.0.0.1', () => {
     console.log(`✅ OTS NEWS API server running on http://127.0.0.1:${PORT}`);
